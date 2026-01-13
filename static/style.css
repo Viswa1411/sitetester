@@ -1,0 +1,115 @@
+/* Combined styles for both static and dynamic audits */
+
+/* Glow effect for interactive elements */
+.glow-box {
+  box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+  transition: all 0.4s ease;
+}
+
+.glow-box:hover {
+  box-shadow: 0 0 50px rgba(0, 255, 255, 0.6);
+}
+
+/* Browser tab navigation - consolidated single definition */
+.browser-tab {
+  padding: 2rem;
+  border-radius: 0.75rem;
+  font-weight: bold;
+  font-size: 1.125rem;
+  transition: all 0.3s ease;
+  background: #1f2937;
+  color: #9ca3af;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.browser-tab:hover {
+  background: #374151;
+}
+
+.browser-tab.active {
+  color: white;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  transform: scale(1.05);
+}
+
+/* Static audit uses cyan gradient */
+.static-audit .browser-tab.active,
+body:not(.dynamic-audit) .browser-tab.active {
+  background: linear-gradient(to right, #06b6d4, #3b82f6);
+  border-color: #06b6d4;
+}
+
+/* Dynamic audit uses blue/purple gradient */
+body.dynamic-audit .browser-tab.active {
+  background: linear-gradient(to right, #3b82f6, #8b5cf6);
+  border-color: #3b82f6;
+}
+
+/* Drop zone hover effects */
+#drop-zone:hover {
+  background: rgba(0, 255, 255, 0.05);
+}
+
+.dynamic-audit #drop-zone:hover {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+/* Grid layout */
+.grid {
+  display: grid;
+}
+
+@media (min-width: 1024px) {
+  .lg\\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Video styling - consolidated single definition */
+video {
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  background: #000;
+}
+
+.video-container {
+  position: relative;
+  width: 100%;
+  background: #000;
+}
+
+.video-container video {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Image styling - consolidated single definition */
+img {
+  max-width: 100%;
+  max-height: 80vh;
+  height: auto;
+  display: block;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* URL cards with hover effect */
+.url-card {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.url-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Hover effect for bordered elements */
+.group:hover .border-gray-700 {
+  border-color: #06b6d4 !important;
+}

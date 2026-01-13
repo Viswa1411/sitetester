@@ -1,0 +1,124 @@
+{% extends "base_platform.html" %}
+
+{% block content %}
+<div class="p-8 max-w-5xl mx-auto">
+    <div class="glass-panel p-8 rounded-2xl border border-white/5 relative overflow-hidden mb-8">
+
+        <div class="relative z-10 mb-8">
+            <div
+                class="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shadow-xl shadow-amber-500/10 mb-6 border border-amber-500/20">
+                <i data-lucide="accessibility" class="w-8 h-8"></i>
+            </div>
+            <h2 class="text-3xl font-semibold text-white mb-2">Accessibility Audit</h2>
+            <p class="text-slate-400 max-w-xl text-lg">
+                Ensure your website is accessible to everyone. Our automated audit checks for WCAG 2.1 violations using
+                the industry-standard axe-core engine.
+            </p>
+        </div>
+
+        <div id="auditFormContainer">
+            <form action="/api/accessibility-test" method="POST" enctype="multipart/form-data"
+                class="space-y-6 relative z-10">
+                <!-- File Upload -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">Upload URL
+                        File</label>
+                    <div id="drop-zone"
+                        class="w-full h-32 border-2 border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-amber-500/50 hover:bg-slate-900/50 transition-all bg-slate-950/30">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <i data-lucide="upload-cloud" class="w-8 h-8 text-slate-500 mb-3"></i>
+                            <p class="mb-2 text-sm text-slate-400"><span class="font-semibold text-amber-500">Click to
+                                    upload</span> or drag and drop</p>
+                            <p class="text-xs text-slate-500">urls.txt files only</p>
+                        </div>
+                    </div>
+                    <input id="file-upload" type="file" name="file" class="hidden" accept=".txt" />
+                </div>
+
+                <div class="relative py-2">
+                    <div class="absolute inset-0 flex items-center">
+                        <div class="w-full border-t border-white/10"></div>
+                    </div>
+                    <div class="relative flex justify-center text-sm">
+                        <span class="px-2 bg-[#0A0F1E] text-slate-500">OR</span>
+                    </div>
+                </div>
+
+                <!-- Manual Entry -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">Manual Entry
+                        (One
+                        per line)</label>
+                    <div class="relative">
+                        <textarea name="urls" rows="5"
+                            class="w-full bg-slate-950/50 border border-white/10 rounded-xl p-4 text-slate-200 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all font-mono text-sm leading-relaxed placeholder-slate-600"
+                            placeholder="https://example.com&#10;https://example.com/about"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4 pt-2">
+                    <button type="submit"
+                        class="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white pl-6 pr-8 py-3.5 rounded-xl font-medium transition-all transform hover:scale-[1.02] shadow-lg shadow-amber-500/20 flex items-center gap-2 group">
+                        <span class="bg-white/20 p-1 rounded-md group-hover:bg-white/30 transition">
+                            <i data-lucide="search" class="w-4 h-4 text-white fill-current"></i>
+                        </span>
+                        Start Accessibility Audit
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Results Area -->
+        <div id="resultsArea" class="mt-8"></div>
+    </div>
+
+    <!-- Info Section -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="glass-panel p-6 rounded-xl border border-white/5 bg-slate-900/40">
+            <h3 class="font-semibold text-white mb-2 flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-red-500"></div> Critical Issues
+            </h3>
+            <p class="text-sm text-slate-400">Blocks users from accessing content or features completely.</p>
+        </div>
+        <div class="glass-panel p-6 rounded-xl border border-white/5 bg-slate-900/40">
+            <h3 class="font-semibold text-white mb-2 flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-amber-500"></div> Serious Issues
+            </h3>
+            <p class="text-sm text-slate-400">Significant barriers that cause frustration for assistive tech users.</p>
+        </div>
+        <div class="glass-panel p-6 rounded-xl border border-white/5 bg-slate-900/40">
+            <h3 class="font-semibold text-white mb-2 flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-blue-500"></div> best Practices
+            </h3>
+            <p class="text-sm text-slate-400">Checks against WCAG 2.0, 2.1 Level A and AA standards.</p>
+        </div>
+    </div>
+</div>
+
+<script src="/static/accessibility-audit.js"></script>
+<script>
+    lucide.createIcons();
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('status') === 'started') {
+        Swal.fire({
+            icon: 'success',
+            title: 'Audit Started',
+            text: 'Accessibility audit is running. Check your dashboard for upgrades.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            timer: 3000,
+            showConfirmButton: false
+        });
+    }
+    if (urlParams.get('error') === 'no_urls') {
+        Swal.fire({
+            icon: 'error',
+            title: 'No URLs Provided',
+            text: 'Please upload a file or enter URLs manually.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#d97706'
+        });
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,210 @@
+{% extends "base_platform.html" %}
+
+{% block content %}
+<div class="p-8 max-w-6xl mx-auto">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-white mb-2">Performance Audit</h1>
+        <p class="text-gray-400">Analyze page load metrics (TTFB, LCP, CLS) across your pages.</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Input Form -->
+        <div class="glass-panel p-6 rounded-xl h-fit">
+            <h3 class="text-lg font-bold text-white mb-4">New Scan</h3>
+            <form id="performance-form" action="/api/performance-test" method="POST">
+                <label class="block text-sm font-medium text-gray-400 mb-2">URLs to Scan (One per line)</label>
+                <textarea name="urls" rows="6"
+                    class="w-full bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-lg focus:ring-2 focus:ring-green-500 outline-none mb-4 font-mono text-sm"
+                    placeholder="https://example.com/&#10;https://example.com/about" required></textarea>
+
+                <button type="submit"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-lg transition shadow-lg shadow-green-500/20">
+                    Start Analysis
+                </button>
+            </form>
+        </div>
+
+        <!-- Recent Checks -->
+        <div class="lg:col-span-2 glass-panel p-6 rounded-xl">
+            <h3 class="text-lg font-bold text-white mb-4">Latest Reports</h3>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="text-gray-500 border-b border-gray-800">
+                            <th class="pb-3 text-sm font-medium">URL</th>
+                            <th class="pb-3 text-sm font-medium">Score</th>
+                            <th class="pb-3 text-sm font-medium">TTFB</th>
+                            <th class="pb-3 text-sm font-medium">Load Time</th>
+                            <th class="pb-3 text-sm font-medium">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-300">
+                        {% if recent_results %}
+                        {% for result in recent_results %}
+                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
+                            <td class="py-4 truncate max-w-xs text-white">{{ result.url }}</td>
+                            <td class="py-4">
+                                <span
+                                    class="px-2 py-1 rounded {% if result.score >= 80 %}bg-green-500/20 text-green-300{% elif result.score >= 60 %}bg-yellow-500/20 text-yellow-300{% else %}bg-red-500/20 text-red-300{% endif %} text-xs font-bold">
+                                    {{ result.score }}
+                                </span>
+                            </td>
+                            <td class="py-4">{{ result.ttfb }}ms</td>
+                            <td class="py-4">{{ "%.2f"|format(result.page_load / 1000) }}s</td>
+                            <td class="py-4 text-gray-500 text-sm">Just now</td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="py-8 text-center text-gray-500">
+                                No performance audits yet. Start your first scan above!
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+    const form = document.getElementById('performance-form');
+    const submitBtn = form.querySelector('button[type="submit"]');
+
+    function updateTable(results) {
+        const tbody = document.querySelector('table tbody');
+        if (!results || results.length === 0) return;
+
+        // Clear "No results" message if present
+        if (tbody.querySelector('td[colspan="5"]')) {
+            tbody.innerHTML = '';
+        }
+
+        // Add new results to the top
+        results.forEach(result => {
+            const row = document.createElement('tr');
+            row.className = 'border-b border-gray-800/50 hover:bg-gray-800/30 animate-pulse-once';
+
+            const scoreColor = result.score >= 80 ? 'bg-green-500/20 text-green-300' :
+                result.score >= 60 ? 'bg-yellow-500/20 text-yellow-300' :
+                    'bg-red-500/20 text-red-300';
+
+            row.innerHTML = `
+                <td class="py-4 truncate max-w-xs text-white">${result.url}</td>
+                <td class="py-4">
+                    <span class="px-2 py-1 rounded ${scoreColor} text-xs font-bold">
+                        ${result.score}
+                    </span>
+                </td>
+                <td class="py-4">${Math.round(result.ttfb)}ms</td>
+                <td class="py-4">${(result.page_load / 1000).toFixed(2)}s</td>
+                <td class="py-4 text-green-400 text-sm font-bold">New</td>
+            `;
+
+            tbody.insertBefore(row, tbody.firstChild);
+        });
+    }
+
+    async function pollResults(sessionId) {
+        const pollInterval = setInterval(async () => {
+            try {
+                // Check session status (we can reuse progress endpoint or check results directly)
+                // Since we don't have a specific status endpoint for perf yet, let's check results
+                // If results appear, we assume it's done or in progress
+
+                const res = await fetch(`/api/results/${sessionId}`);
+                if (!res.ok) return;
+
+                const results = await res.json();
+                if (results && results.length > 0) {
+                    clearInterval(pollInterval);
+                    updateTable(results);
+
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Start Analysis';
+                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Analysis Complete',
+                        text: 'Performance results have been updated.',
+                        background: '#0f172a',
+                        color: '#f8fafc',
+                        toast: true,
+                        position: 'top-end',
+                        showConfirmButton: false,
+                        timer: 3000
+                    });
+                }
+            } catch (e) {
+                console.error("Polling error", e);
+            }
+        }, 2000);
+
+        // Timeout after 60s
+        setTimeout(() => {
+            clearInterval(pollInterval);
+            if (submitBtn.disabled) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Start Analysis';
+                submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }, 60000);
+    }
+
+    form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+
+        const urlsTextarea = document.querySelector('textarea[name="urls"]');
+        const urls = urlsTextarea.value.trim();
+
+        if (!urls) {
+            Swal.fire({
+                icon: 'info',
+                title: 'URLs Required',
+                text: 'Please enter at least one URL to scan.',
+                background: '#0f172a',
+                color: '#f8fafc',
+                confirmButtonColor: '#10b981'
+            });
+            return;
+        }
+
+        // Locking UI
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Analyzing...';
+        submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+        try {
+            const formData = new FormData(form);
+            const response = await fetch('/api/performance-test', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                pollResults(data.session_id);
+            } else {
+                throw new Error('Analysis failed to start');
+            }
+        } catch (error) {
+            console.error(error);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Start Analysis';
+            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Failed to start analysis. Please try again.',
+                background: '#0f172a',
+                color: '#f8fafc'
+            });
+        }
+    });
+</script>
+{% endblock %}

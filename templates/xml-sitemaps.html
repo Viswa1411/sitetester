@@ -1,0 +1,19 @@
+{% extends "base_platform.html" %}
+
+{% block content %}
+<div class="p-8 max-w-7xl mx-auto h-full flex flex-col items-center justify-center">
+    <div class="glass-panel rounded-2xl p-12 shadow-2xl max-w-2xl mx-auto w-full text-center">
+        <div class="w-20 h-20 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-6">
+            <i data-lucide="sitemap" class="w-10 h-10 text-emerald-400"></i>
+        </div>
+        <h1 class="text-3xl font-bold text-white mb-4">XML Sitemaps Scanner</h1>
+        <p class="text-gray-400 text-lg mb-8">This tool is currently under development. Check back soon!</p>
+
+        <a href="/platform/dashboard"
+            class="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition inline-flex items-center gap-2">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i>
+            Back to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}
