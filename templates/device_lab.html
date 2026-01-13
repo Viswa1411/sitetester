@@ -87,19 +87,19 @@
 
         <div id="deviceGrid" class="flex flex-nowrap gap-12 items-start justify-start relative z-10 pb-20">
 
-            <!-- iPhone 14 Pro -->
             <div class="device-frame flex flex-col items-center gap-4 group">
                 <div class="text-xs text-slate-500 font-medium uppercase tracking-widest flex items-center gap-2">
                     <i data-lucide="smartphone" class="w-3 h-3"></i> iPhone 14 Pro
                 </div>
                 <!-- 380px outer - 32px overhead = 348px viewport width -->
-                <div class="relative bg-slate-900 rounded-[3rem] p-3 border-4 border-slate-800 shadow-2xl ring-1 ring-white/10 transition-all duration-500"
+                <div class="relative bg-slate-900 rounded-[3rem] p-3 border-4 border-slate-800 shadow-2xl ring-1 ring-white/10 transition-all duration-500 ease-in-out"
                     style="width: 380px;" data-w="348" data-h="760" data-orientation="portrait">
                     <div
-                        class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-7 bg-black rounded-b-2xl z-20 transition-opacity">
+                        class="device-notch absolute top-0 left-1/2 -translate-x-1/2 w-32 h-7 bg-slate-900 rounded-b-2xl z-20 transition-all duration-500 ease-in-out">
                     </div>
                     <!-- Dynamic Island -->
-                    <div class="w-full h-[760px] bg-white rounded-[2rem] overflow-hidden relative">
+                    <div
+                        class="w-full h-[760px] bg-white rounded-[2rem] overflow-hidden relative transition-all duration-500 ease-in-out">
                         <iframe src="about:blank" class="w-full h-full border-0 test-frame bg-white" id="frame-mobile"
                             sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
                     </div>
@@ -112,9 +112,10 @@
                     <i data-lucide="tablet" class="w-3 h-3"></i> iPad Pro
                 </div>
                 <!-- 580px outer - 32px overhead = 548px viewport width -->
-                <div class="relative bg-slate-900 rounded-[2rem] p-3 border-4 border-slate-800 shadow-2xl ring-1 ring-white/10 transition-all duration-500"
+                <div class="relative bg-slate-900 rounded-[2rem] p-3 border-4 border-slate-800 shadow-2xl ring-1 ring-white/10 transition-all duration-500 ease-in-out"
                     style="width: 580px;" data-w="548" data-h="780" data-orientation="portrait">
-                    <div class="w-full h-[780px] bg-white rounded-xl overflow-hidden">
+                    <div
+                        class="w-full h-[780px] bg-white rounded-xl overflow-hidden transition-all duration-500 ease-in-out">
                         <iframe src="about:blank" class="w-full h-full border-0 test-frame bg-white" id="frame-tablet"
                             sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
                     </div>
@@ -126,9 +127,10 @@
                 <div class="text-xs text-slate-500 font-medium uppercase tracking-widest flex items-center gap-2">
                     <i data-lucide="laptop" class="w-3 h-3"></i> MacBook Air
                 </div>
-                <div class="relative bg-slate-800 rounded-t-xl p-2 pb-0 shadow-2xl ring-1 ring-white/10"
+                <div class="relative bg-slate-800 rounded-t-xl p-2 pb-0 shadow-2xl ring-1 ring-white/10 transition-all duration-500 ease-in-out"
                     style="width: 700px;">
-                    <div class="w-full h-[450px] bg-white rounded-t lg overflow-hidden border border-slate-700">
+                    <div
+                        class="w-full h-[450px] bg-white rounded-t lg overflow-hidden border border-slate-700 transition-all duration-500 ease-in-out">
                         <iframe src="about:blank" class="w-full h-full border-0 test-frame bg-white" id="frame-desktop"
                             sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
                     </div>
@@ -144,7 +146,6 @@
 
 <script>
     lucide.createIcons();
-    let currentRotation = 0;
     let syncEnabled = true;
     let isScrolling = false;
     let currentUrl = "";
@@ -259,10 +260,10 @@
                     <i data-lucide="x" class="w-3 h-3"></i>
                 </button>
             </div>
-            <div class="relative bg-slate-900 rounded-lg p-3 border-4 border-slate-800 shadow-2xl ring-1 ring-white/10 transition-all duration-500 hover:scale-[1.01]"
+            <div class="relative bg-slate-900 rounded-lg p-3 border-4 border-slate-800 shadow-2xl ring-1 ring-white/10 transition-all duration-500 ease-in-out hover:scale-[1.01]"
                 style="width: ${parseInt(w) + overhead}px;"
                 data-w="${w}" data-h="${h}" data-orientation="portrait">
-                <div class="w-full bg-white rounded-md overflow-hidden" style="height: ${h}px;">
+                <div class="w-full bg-white rounded-md overflow-hidden transition-all duration-500 ease-in-out" style="height: ${h}px;">
                     <iframe src="${currentUrl ? getProxyUrl(currentUrl) : 'about:blank'}" 
                         class="w-full h-full border-0 test-frame bg-white" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
                 </div>
@@ -376,8 +377,13 @@
             // Skip if no data attributes (Macbook or unsupported)
             if (!container.hasAttribute('data-w')) return;
 
-            const screen = container.querySelector('div.bg-white:not(.relative)'); // The inner screen div
-            const notch = container.querySelector('.rounded-b-2xl'); // The notch (if exists)
+            // FIX: Robust selector for screen container
+            // Use the parent of the iframe, as that is always the screen container
+            const iframe = container.querySelector('iframe');
+            const screen = iframe ? iframe.parentElement : null;
+
+            // FIX: Robust selector for notch using class
+            const notch = container.querySelector('.device-notch');
 
             const w = parseInt(container.getAttribute('data-w'));
             const h = parseInt(container.getAttribute('data-h'));
@@ -388,15 +394,31 @@
 
             container.setAttribute('data-orientation', newOrientation);
 
-            // Apply Swap
+            // Apply Swap & Notch Rotation
             if (newOrientation === 'landscape') {
                 container.style.width = (h + overhead) + 'px';
                 if (screen) screen.style.height = w + 'px';
-                if (notch) notch.style.opacity = '0'; // Hide notch in landscape
+
+                if (notch) {
+                    // Move notch to left side (Landscape)
+                    // Remove Portrait classes
+                    notch.classList.remove('top-0', 'left-1/2', '-translate-x-1/2', 'w-32', 'h-7', 'rounded-b-2xl');
+                    // Add Landscape classes
+                    notch.classList.add('top-1/2', 'left-0', '-translate-y-1/2', 'w-7', 'h-32', 'rounded-r-2xl');
+                    notch.style.opacity = '1';
+                }
             } else {
                 container.style.width = (w + overhead) + 'px';
                 if (screen) screen.style.height = h + 'px';
-                if (notch) notch.style.opacity = '1';
+
+                if (notch) {
+                    // Reset notch to top (Portrait)
+                    // Remove Landscape classes
+                    notch.classList.remove('top-1/2', 'left-0', '-translate-y-1/2', 'w-7', 'h-32', 'rounded-r-2xl');
+                    // Add Portrait classes
+                    notch.classList.add('top-0', 'left-1/2', '-translate-x-1/2', 'w-32', 'h-7', 'rounded-b-2xl');
+                    notch.style.opacity = '1';
+                }
             }
         });
     }

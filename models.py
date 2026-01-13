@@ -1,4 +1,4 @@
-# models.py
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                # models.py
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
 from sqlalchemy.sql import func
 from database import Base
@@ -170,3 +170,60 @@ class DynamicAuditResult(Base):
     
     def __repr__(self):
         return f"<DynamicAuditResult(session_id='{self.session_id}', url='{self.url}', browser='{self.browser}')>"
+
+class MetaTagsResult(Base):
+    __tablename__ = "meta_tags_results"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("audit_sessions.session_id"), nullable=False)
+    url = Column(String, nullable=False)
+    
+    # Standard Tags
+    title = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    keywords = Column(String, nullable=True)
+    canonical = Column(String, nullable=True)
+    
+    # Rich Data (JSON)
+    og_tags = Column(Text, nullable=True) # Full OG dictionary
+    twitter_tags = Column(Text, nullable=True) # Full Twitter dictionary
+    schema_tags = Column(Text, nullable=True) # List of found Schema types
+    
+    # Analysis (JSON)
+    missing_tags = Column(Text, nullable=True) # List of missing critical tags
+    warnings = Column(Text, nullable=True) # List of warnings (e.g. length issues)
+    keyword_consistency = Column(Text, nullable=True) # JSON of keyword match stats
+    
+    # Score
+    score = Column(Integer, default=0)
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class SitemapResult(Base):
+    __tablename__ = "sitemap_results"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("audit_sessions.session_id"), nullable=False)
+    url = Column(String, nullable=False)
+    
+    # Structure
+    is_index = Column(Boolean, default=False)
+    child_sitemaps = Column(Text, nullable=True) # JSON list of child sitemap URLs
+    
+    # Stats
+    url_count = Column(Integer, default=0)
+    avg_priority = Column(Integer, default=0) # Scaled x100 (e.g. 0.8 -> 80)
+    
+    # Validation & Health
+    errors = Column(Text, nullable=True) # JSON list of validation errors
+    warnings = Column(Text, nullable=True) # JSON list of warnings
+    
+    # Organic Checks
+    reachability_sample = Column(Text, nullable=True) # JSON of {url: status_code} sample
+    robots_status = Column(String, nullable=True) # "found", "missing", "error"
+    load_time_ms = Column(Integer, default=0)
+    
+    # Score
+    score = Column(Integer, default=0)
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

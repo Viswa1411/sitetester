@@ -17,6 +17,22 @@
                     class="w-full bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-lg focus:ring-2 focus:ring-green-500 outline-none mb-4 font-mono text-sm"
                     placeholder="https://example.com/&#10;https://example.com/about" required></textarea>
 
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-400 mb-2">Strategy</label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="strategy" value="desktop" checked
+                                class="w-4 h-4 text-green-500 bg-gray-800 border-gray-600 focus:ring-green-500">
+                            <span class="ml-2 text-gray-300">Desktop</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="strategy" value="mobile"
+                                class="w-4 h-4 text-green-500 bg-gray-800 border-gray-600 focus:ring-green-500">
+                            <span class="ml-2 text-gray-300">Mobile</span>
+                        </label>
+                    </div>
+                </div>
+
                 <button type="submit"
                     class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-lg transition shadow-lg shadow-green-500/20">
                     Start Analysis
@@ -33,6 +49,7 @@
                     <thead>
                         <tr class="text-gray-500 border-b border-gray-800">
                             <th class="pb-3 text-sm font-medium">URL</th>
+                            <th class="pb-3 text-sm font-medium">Strategy</th>
                             <th class="pb-3 text-sm font-medium">Score</th>
                             <th class="pb-3 text-sm font-medium">TTFB</th>
                             <th class="pb-3 text-sm font-medium">Load Time</th>
@@ -44,6 +61,7 @@
                         {% for result in recent_results %}
                         <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
                             <td class="py-4 truncate max-w-xs text-white">{{ result.url }}</td>
+                            <td class="py-4 text-gray-400">{{ result.device_preset }}</td>
                             <td class="py-4">
                                 <span
                                     class="px-2 py-1 rounded {% if result.score >= 80 %}bg-green-500/20 text-green-300{% elif result.score >= 60 %}bg-yellow-500/20 text-yellow-300{% else %}bg-red-500/20 text-red-300{% endif %} text-xs font-bold">
@@ -52,12 +70,16 @@
                             </td>
                             <td class="py-4">{{ result.ttfb }}ms</td>
                             <td class="py-4">{{ "%.2f"|format(result.page_load / 1000) }}s</td>
-                            <td class="py-4 text-gray-500 text-sm">Just now</td>
+                            <td class="py-4 text-gray-400 text-sm">
+                                <span class="local-date" data-timestamp="{{ result.created_at }}">
+                                    {{ result.created_at }}
+                                </span>
+                            </td>
                         </tr>
                         {% endfor %}
                         {% else %}
-                        <tr>
-                            <td colspan="5" class="py-8 text-center text-gray-500">
+                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
+                            <td colspan="6" class="py-8 text-center text-gray-500">
                                 No performance audits yet. Start your first scan above!
                             </td>
                         </tr>
@@ -79,7 +101,7 @@
         if (!results || results.length === 0) return;
 
         // Clear "No results" message if present
-        if (tbody.querySelector('td[colspan="5"]')) {
+        if (tbody.querySelector('td[colspan="6"]')) { // Changed colspan from 5 to 6
             tbody.innerHTML = '';
         }
 
@@ -94,6 +116,7 @@
 
             row.innerHTML = `
                 <td class="py-4 truncate max-w-xs text-white">${result.url}</td>
+                <td class="py-4 text-gray-400">${result.device_preset || 'Desktop'}</td>
                 <td class="py-4">
                     <span class="px-2 py-1 rounded ${scoreColor} text-xs font-bold">
                         ${result.score}
@@ -101,7 +124,11 @@
                 </td>
                 <td class="py-4">${Math.round(result.ttfb)}ms</td>
                 <td class="py-4">${(result.page_load / 1000).toFixed(2)}s</td>
-                <td class="py-4 text-green-400 text-sm font-bold">New</td>
+                <td class="py-4 text-green-400 text-sm font-bold">
+                    <span class="local-date" data-timestamp="${result.created_at || new Date().toISOString()}">
+                       ${formatDate(result.created_at || new Date().toISOString())}
+                    </span>
+                </td>
             `;
 
             tbody.insertBefore(row, tbody.firstChild);
@@ -111,17 +138,22 @@
     async function pollResults(sessionId) {
         const pollInterval = setInterval(async () => {
             try {
-                // Check session status (we can reuse progress endpoint or check results directly)
-                // Since we don't have a specific status endpoint for perf yet, let's check results
-                // If results appear, we assume it's done or in progress
-
                 const res = await fetch(`/api/results/${sessionId}`);
-                if (!res.ok) return;
-
-                const results = await res.json();
-                if (results && results.length > 0) {
+                if (!res.ok) {
+                    // If the session is no longer found or an error occurs, stop polling
                     clearInterval(pollInterval);
-                    updateTable(results);
+                    console.error("Polling failed or session ended unexpectedly.");
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Start Analysis';
+                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    return;
+                }
+
+                const data = await res.json(); // Assuming response is an object with status and results
+
+                if (data.status === 'completed' && data.results && data.results.length > 0) {
+                    clearInterval(pollInterval);
+                    updateTable(data.results); // Update with all results from the session
 
                     submitBtn.disabled = false;
                     submitBtn.textContent = 'Start Analysis';

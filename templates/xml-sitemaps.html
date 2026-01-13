@@ -1,19 +1,337 @@
 {% extends "base_platform.html" %}
 
 {% block content %}
-<div class="p-8 max-w-7xl mx-auto h-full flex flex-col items-center justify-center">
-    <div class="glass-panel rounded-2xl p-12 shadow-2xl max-w-2xl mx-auto w-full text-center">
-        <div class="w-20 h-20 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-6">
-            <i data-lucide="sitemap" class="w-10 h-10 text-emerald-400"></i>
-        </div>
-        <h1 class="text-3xl font-bold text-white mb-4">XML Sitemaps Scanner</h1>
-        <p class="text-gray-400 text-lg mb-8">This tool is currently under development. Check back soon!</p>
+<div class="p-6 max-w-7xl mx-auto space-y-8">
 
-        <a href="/platform/dashboard"
-            class="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition inline-flex items-center gap-2">
-            <i data-lucide="arrow-left" class="w-4 h-4"></i>
-            Back to Dashboard
-        </a>
+    <!-- Header & Input -->
+    <div class="glass-panel p-8 rounded-2xl border-l-4 border-emerald-500 shadow-2xl relative overflow-hidden">
+        <div
+            class="absolute top-0 right-0 w-64 h-64 bg-emerald-600/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none">
+        </div>
+
+        <div class="relative z-10">
+            <h1 class="text-3xl font-bold text-white mb-2 flex items-center gap-3">
+                <i data-lucide="sitemap" class="w-8 h-8 text-emerald-400"></i>
+                XML Sitemaps Scanner
+                <span
+                    class="px-3 py-1 bg-emerald-500/20 text-emerald-300 text-xs rounded-full font-mono border border-emerald-500/30">ORGANIC</span>
+            </h1>
+            <p class="text-slate-400 mb-8 max-w-2xl">
+                Validate your sitemap structure, check for broken links (Reachability), and verify robots.txt
+                integration for maximum crawl efficiency.
+            </p>
+
+            <form id="sitemap-form" action="/api/scan/sitemap" method="POST" class="space-y-4 max-w-3xl">
+                <div class="flex gap-4">
+                    <div class="relative flex-1 group">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="link"
+                                class="w-5 h-5 text-slate-500 group-focus-within:text-emerald-400 transition-colors"></i>
+                        </div>
+                        <input type="url" name="url" required
+                            class="w-full bg-slate-900/50 border border-slate-700 text-white pl-10 pr-4 py-3 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all placeholder-slate-500"
+                            placeholder="https://example.com/sitemap.xml (Enter URL to scan)">
+                    </div>
+                    <button type="submit"
+                        class="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-emerald-900/20 flex items-center gap-2 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>Start Audit</span>
+                        <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading" class="hidden">
+        <div class="flex flex-col items-center justify-center p-12 glass-panel rounded-2xl">
+            <div class="w-16 h-16 border-4 border-emerald-600/30 border-t-emerald-500 rounded-full animate-spin mb-4">
+            </div>
+            <h3 class="text-xl font-semibold text-white animate-pulse">Crawling Sitemap...</h3>
+            <p class="text-slate-400 mt-2">Checking structure, reachability, and robots.txt</p>
+        </div>
+    </div>
+
+    <!-- Results Container -->
+    <div id="results-container" class="hidden space-y-8">
+
+        <!-- Score & Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Health Score -->
+            <div
+                class="glass-panel p-6 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group">
+                <div
+                    class="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 group-hover:scale-110 transition-transform duration-500">
+                </div>
+                <div class="relative z-10 text-center">
+                    <p class="text-slate-400 text-sm font-medium uppercase tracking-wider mb-2">Sitemap Score</p>
+                    <div class="text-5xl font-bold text-white mb-2" id="score-display">--</div>
+                    <div class="h-2 w-24 bg-slate-800 rounded-full overflow-hidden">
+                        <div id="score-bar"
+                            class="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-emerald-500 w-0 transition-all duration-1000">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total URLs -->
+            <div class="glass-panel p-6 rounded-2xl border-t border-white/5">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-slate-400 text-sm font-medium">Total URLs</p>
+                    <i data-lucide="list" class="w-4 h-4 text-slate-500"></i>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="url-count">--</div>
+                <p class="text-xs text-slate-500 mt-2" id="index-badge">Standard Sitemap</p>
+            </div>
+
+            <!-- Robots.txt Status -->
+            <div class="glass-panel p-6 rounded-2xl border-t border-white/5">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-slate-400 text-sm font-medium">Robots.txt</p>
+                    <i data-lucide="bot" class="w-4 h-4 text-slate-500"></i>
+                </div>
+                <div id="robots-status" class="text-lg font-medium text-white break-all">--</div>
+                <p class="text-xs text-slate-500 mt-2">Is sitemap declared?</p>
+            </div>
+
+            <!-- Performance -->
+            <div class="glass-panel p-6 rounded-2xl border-t border-white/5">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-slate-400 text-sm font-medium">Load Time</p>
+                    <i data-lucide="zap" class="w-4 h-4 text-slate-500"></i>
+                </div>
+                <div class="flex items-end gap-2">
+                    <span id="load-time" class="text-3xl font-bold text-white">--</span>
+                    <span class="text-slate-500 text-sm mb-1">ms</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-2">Google prefers < 1000ms</p>
+            </div>
+        </div>
+
+        <!-- Sitemap Tree -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="glass-panel p-6 rounded-2xl">
+                <h3 class="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                    <i data-lucide="git-branch" class="w-5 h-5 text-emerald-400"></i>
+                    Sitemap Structure
+                </h3>
+                <div
+                    class="bg-slate-900/50 rounded-xl p-4 border border-white/5 h-[300px] overflow-y-auto font-mono text-sm">
+                    <div id="tree-root" class="text-emerald-400 mb-2 font-bold flex items-center gap-2">
+                        <i data-lucide="file-check" class="w-4 h-4"></i> <span id="root-url">...</span>
+                    </div>
+                    <div id="tree-children" class="pl-6 border-l border-white/10 space-y-2">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Organic Reachability -->
+            <div class="glass-panel p-6 rounded-2xl">
+                <h3 class="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                    <i data-lucide="activity" class="w-5 h-5 text-emerald-400"></i>
+                    Reachability Check (Sample)
+                </h3>
+                <p class="text-sm text-slate-400 mb-4">We sampled random URLs to ensure they are alive.</p>
+                <div class="overflow-hidden rounded-xl border border-white/5">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-800/50">
+                            <tr class="text-xs text-slate-500 uppercase">
+                                <th class="p-3">Sample URL</th>
+                                <th class="p-3 text-right">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reachability-table" class="bg-slate-900/30 text-sm divide-y divide-white/5">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Errors & Warnings -->
+        <div class="glass-panel p-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/5">
+            <h3 class="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <i data-lucide="alert-circle" class="w-5 h-5 text-yellow-400"></i>
+                Issues Found
+            </h3>
+            <ul id="issues-list" class="space-y-2">
+                <!-- Populated by JS -->
+            </ul>
+        </div>
     </div>
 </div>
+
+<script>
+    const form = document.getElementById('sitemap-form');
+    const loading = document.getElementById('loading');
+    const resultContainer = document.getElementById('results-container');
+    const scanBtn = form.querySelector('button');
+
+    // Check URL params for status
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    const sessionId = urlParams.get('session_id');
+
+    if (status === 'started' && sessionId) {
+        startPolling(sessionId);
+    } else if (status === 'completed' && sessionId) {
+        // Fetch results immediately
+        fetchResults(sessionId);
+    }
+
+    async function fetchResults(sid) {
+        loading.classList.remove('hidden');
+        resultContainer.classList.add('hidden');
+        form.classList.add('opacity-50', 'pointer-events-none');
+
+        try {
+            const res = await fetch(`/api/results/sitemap/${sid}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.results) {
+                    renderResults(data.results);
+                    loading.classList.add('hidden');
+                    resultContainer.classList.remove('hidden');
+                    form.classList.remove('opacity-50', 'pointer-events-none');
+                }
+            }
+        } catch (e) {
+            console.error(e);
+            loading.classList.add('hidden');
+            form.classList.remove('opacity-50', 'pointer-events-none');
+        }
+    }
+
+    form.addEventListener('submit', (e) => {
+        scanBtn.disabled = true;
+        scanBtn.innerHTML = `<div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> Scanning...`;
+    });
+
+    function startPolling(sid) {
+        loading.classList.remove('hidden');
+        resultContainer.classList.add('hidden');
+        form.classList.add('opacity-50', 'pointer-events-none');
+
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/results/sitemap/${sid}`);
+                if (!res.ok) return;
+
+                const data = await res.json();
+
+                if (data.status === 'completed' && data.results) {
+                    clearInterval(interval);
+                    renderResults(data.results);
+                    loading.classList.add('hidden');
+                    resultContainer.classList.remove('hidden');
+                    form.classList.remove('opacity-50', 'pointer-events-none');
+                } else if (data.status === 'error') {
+                    clearInterval(interval);
+                    alert("Scan failed. Invalid sitemap or server error.");
+                    loading.classList.add('hidden');
+                    form.classList.remove('opacity-50', 'pointer-events-none');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }, 1000);
+    }
+
+    function renderResults(res) {
+        // --- SCORE ---
+        const scoreDisplay = document.getElementById('score-display');
+        const scoreBar = document.getElementById('score-bar');
+        scoreDisplay.innerText = res.score;
+        scoreBar.style.width = res.score + '%';
+
+        let scoreColor = 'from-red-500 to-orange-500';
+        if (res.score >= 90) scoreColor = 'from-emerald-400 to-green-600';
+        else if (res.score >= 70) scoreColor = 'from-yellow-400 to-orange-500';
+        scoreBar.className = `h-full w-0 transition-all duration-1000 bg-gradient-to-r ${scoreColor}`;
+        setTimeout(() => scoreBar.style.width = res.score + '%', 100);
+
+        // --- STATS ---
+        document.getElementById('url-count').innerText = res.url_count.toLocaleString();
+
+        const idxBadge = document.getElementById('index-badge');
+        if (res.is_index) {
+            idxBadge.textContent = "Sitemap Index (Nested)";
+            idxBadge.className = "text-xs font-semibold px-2 py-1 rounded bg-blue-500/20 text-blue-300 inline-block mt-2";
+        } else {
+            idxBadge.textContent = "URL Set (Standard)";
+            idxBadge.className = "text-xs font-semibold px-2 py-1 rounded bg-slate-700 text-slate-300 inline-block mt-2";
+        }
+
+        // Robots
+        const rob = document.getElementById('robots-status');
+        if (res.robots_status === 'found') {
+            rob.textContent = "Correctly Declared";
+            rob.className = "text-lg font-medium text-emerald-400";
+        } else if (res.robots_status === 'missing') {
+            rob.textContent = "Undeclared";
+            rob.className = "text-lg font-medium text-yellow-400";
+        } else {
+            rob.textContent = "Unknown/Error";
+            rob.className = "text-lg font-medium text-red-400";
+        }
+
+        // Load Time
+        document.getElementById('load-time').innerText = res.load_time_ms;
+
+        // --- TREE ---
+        document.getElementById('root-url').innerText = res.url;
+        const treeChildren = document.getElementById('tree-children');
+        treeChildren.innerHTML = '';
+
+        if (res.is_index && res.child_sitemaps.length > 0) {
+            res.child_sitemaps.forEach(child => {
+                const div = document.createElement('div');
+                div.className = "text-slate-400 hover:text-white transition-colors truncate";
+                div.innerHTML = `├── <span class="bg-slate-800 px-1 rounded text-xs">SUB</span> ${child}`;
+                treeChildren.appendChild(div);
+            });
+        } else {
+            const div = document.createElement('div');
+            div.className = "text-slate-500 italic";
+            div.textContent = `Contains ${res.url_count} URLs (Direct List)`;
+            treeChildren.appendChild(div);
+        }
+
+        // --- REACHABILITY ---
+        const rTable = document.getElementById('reachability-table');
+        rTable.innerHTML = '';
+        if (Object.keys(res.reachability_sample).length > 0) {
+            Object.entries(res.reachability_sample).forEach(([url, status]) => {
+                const tr = document.createElement('tr');
+                const color = status === 200 ? 'text-emerald-400' : 'text-red-400';
+                tr.innerHTML = `
+                    <td class="p-3 text-slate-400 truncate max-w-[200px]" title="${url}">${url}</td>
+                    <td class="p-3 text-right ${color} font-mono font-bold">${status}</td>
+                `;
+                rTable.appendChild(tr);
+            });
+        } else {
+            rTable.innerHTML = '<tr class="text-slate-500 text-center"><td colspan="2" class="p-4">No sample checked or empty sitemap.</td></tr>';
+        }
+
+        // --- ISSUES ---
+        const iList = document.getElementById('issues-list');
+        iList.innerHTML = '';
+        const allIssues = [...(res.errors || []), ...(res.warnings || [])];
+
+        if (allIssues.length > 0) {
+            allIssues.forEach(issue => {
+                const li = document.createElement('li');
+                li.className = "text-red-300 text-sm flex items-start gap-2";
+                li.innerHTML = `<span class="mt-1">•</span> <span>${issue}</span>`;
+                iList.appendChild(li);
+            });
+        } else {
+            iList.innerHTML = `<li class="text-emerald-400 text-sm flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> No critical issues found!</li>`;
+        }
+
+        lucide.createIcons();
+    }
+</script>
 {% endblock %}

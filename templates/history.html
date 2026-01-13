@@ -120,6 +120,8 @@
                                 {% elif session.session_type == 'performance' %}bg-blue-500/10 text-blue-400 border-blue-500/20
                                 {% elif session.session_type == 'phone' %}bg-emerald-500/10 text-emerald-400 border-emerald-500/20
                                 {% elif session.session_type == 'h1' %}bg-purple-500/10 text-purple-400 border-purple-500/20
+                                {% elif session.session_type == 'meta-tags' %}bg-blue-500/10 text-blue-400 border-blue-500/20
+                                {% elif session.session_type == 'sitemap' %}bg-emerald-500/10 text-emerald-400 border-emerald-500/20
                                 {% else %}bg-slate-700/50 text-slate-400 border-white/10{% endif %}">
 
                                 {% if session.session_type == 'unified' %}<i data-lucide="layers"
@@ -131,6 +133,10 @@
                                 {% elif session.session_type == 'phone' %}<i data-lucide="phone"
                                     class="w-3.5 h-3.5"></i>
                                 {% elif session.session_type == 'h1' %}<i data-lucide="heading" class="w-3.5 h-3.5"></i>
+                                {% elif session.session_type == 'meta-tags' %}<i data-lucide="tags"
+                                    class="w-3.5 h-3.5"></i>
+                                {% elif session.session_type == 'sitemap' %}<i data-lucide="sitemap"
+                                    class="w-3.5 h-3.5"></i>
                                 {% else %}<i data-lucide="file" class="w-3.5 h-3.5"></i>{% endif %}
                                 {{ session.session_type|title }}
                             </span>
@@ -150,9 +156,10 @@
                             </span>
                         </td>
                         <td class="px-6 py-4 text-slate-400">
-                            {{ session.created_at.strftime('%Y-%m-%d') if session.created_at else 'N/A' }}
-                            <div class="text-xs text-slate-600">{{ session.created_at.strftime('%H:%M') if
-                                session.created_at else '' }}</div>
+                            <span class="local-date" data-timestamp="{{ session.created_at }}">
+                                {{ session.created_at.strftime('%Y-%m-%d %H:%M') if session.created_at else 'N/A' }}
+                                (UTC)
+                            </span>
                         </td>
                         <td class="px-6 py-4 text-right">
                             <div class="flex justify-end gap-2">
@@ -173,6 +180,8 @@
                                          {% elif session.session_type == 'dynamic' %}/dynamic-results/{{session.session_id}}
                                          {% elif session.session_type == 'phone' %}/phone-audit?status=completed&session={{session.session_id}}
                                          {% elif session.session_type == 'h1' %}/h1-audit?status=completed&session={{session.session_id}}
+                                         {% elif session.session_type == 'meta-tags' %}/scan/meta-tags?status=completed&session_id={{session.session_id}}
+                                         {% elif session.session_type == 'sitemap' %}/scan/xml-sitemaps?status=completed&session_id={{session.session_id}}
                                          {% else %}/static-results/{{session.session_id}}{% endif %}"
                                     class="p-2 bg-blue-500/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-lg transition"
                                     title="View Results">

@@ -2570,7 +2570,7 @@ async def audit_accessibility_logic(urls: List[str], session_id: str, db: Sessio
 
 # ========== PERFORMANCE AUDIT FUNCTIONS ==========
 
-async def audit_performance_logic(urls: List[str], session_id: str):
+async def audit_performance_logic(urls: List[str], session_id: str, strategy: str = "desktop"):
     # Create a new database session for this background task
     db = database.SessionLocal()
     try:
@@ -2579,7 +2579,13 @@ async def audit_performance_logic(urls: List[str], session_id: str):
             
             for url in urls:
                 try:
-                    context = await browser.new_context()
+                    if strategy == "mobile":
+                        # Use iPhone 12 emulation
+                        device = p.devices['iPhone 12']
+                        context = await browser.new_context(**device)
+                    else:
+                        context = await browser.new_context()
+
                     page = await context.new_page()
                     
                     # Navigate and measure
@@ -2619,6 +2625,7 @@ async def audit_performance_logic(urls: List[str], session_id: str):
                     result = models.PerformanceAuditResult(
                         session_id=session_id,
                         url=url,
+                        device_preset="Mobile" if strategy == "mobile" else "Desktop",
                         ttfb=ttfb,
                         fcp=fcp,
                         dom_load=dom_load,
@@ -2647,6 +2654,491 @@ async def audit_performance_logic(urls: List[str], session_id: str):
 
     except Exception as e:
         print(f"Performance Audit Fatal Error: {e}")
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if session:
+            session.status = "error"
+            db.commit()
+    finally:
+        db.close()
+
+
+# ========== META TAGS AUDIT FUNCTIONS ==========
+
+async def audit_meta_tags_logic(urls: List[str], session_id: str):
+    db = database.SessionLocal()
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            
+            for url in urls:
+                try:
+                    # Check if stopped
+                    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+                    if session and session.status == "stopped":
+                        break
+
+                    context = await browser.new_context(user_agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+                    page = await context.new_page()
+                    
+                    try:
+                        await page.goto(url, wait_until="networkidle", timeout=60000)
+                    except:
+                        pass # Continue even if timeout, DOM might be ready
+                    
+                    # --- EXTRACTION ---
+                    
+                    # Standard Tags (Safe JS Evaluation)
+                    # We use evaluate to avoid Playwright waiting for elements that might not exist
+                    metadata = await page.evaluate("""() => {
+                        return {
+                            title: document.title || '',
+                            description: document.querySelector('meta[name="description"]')?.getAttribute('content') || '',
+                            keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content') || '',
+                            canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href') || ''
+                        }
+                    }""")
+                    
+                    title = metadata['title']
+                    description = metadata['description']
+                    keywords = metadata['keywords']
+                    canonical = metadata['canonical']
+                    
+                    # OG Tags
+                    og_tags = await page.evaluate("""() => {
+                        const tags = {};
+                        document.querySelectorAll('meta[property^="og:"]').forEach(m => {
+                            tags[m.getAttribute('property')] = m.getAttribute('content');
+                        });
+                        return tags;
+                    }""")
+                    
+                    # Twitter Tags
+                    twitter_tags = await page.evaluate("""() => {
+                        const tags = {};
+                        document.querySelectorAll('meta[name^="twitter:"]').forEach(m => {
+                            tags[m.getAttribute('name')] = m.getAttribute('content');
+                        });
+                        return tags;
+                    }""")
+                    
+                    # Schema.org (JSON-LD)
+                    schema_tags = await page.evaluate("""() => {
+                        const schemas = [];
+                        document.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
+                            try {
+                                schemas.push(JSON.parse(s.innerText));
+                            } catch(e) {}
+                        });
+                        return schemas;
+                    }""")
+                    
+                    # Keyword Consistency (Simple Tokenizer)
+                    body_text = await page.evaluate("document.body.innerText")
+                    # Clean and tokenize body
+                    import re
+                    from collections import Counter
+                    
+                    def tokenize(text):
+                        return [w.lower() for w in re.findall(r'[a-zA-Z]{3,}', text)]
+                    
+                    body_tokens = tokenize(body_text)
+                    body_counts = Counter(body_tokens)
+                    
+                    target_keywords = tokenize(title + " " + keywords + " " + description)
+                    # Filter uniques
+                    target_keywords = list(set(target_keywords))
+                    
+                    keyword_consistency = {}
+                    for kw in target_keywords:
+                        keyword_consistency[kw] = body_counts.get(kw, 0)
+                        
+                    
+                    # --- VALIDATION (Google Guidelines) ---
+                    warnings = []
+                    missing_tags = []
+                    score = 100
+                    
+                    # Title Length (30-60 chars)
+                    if not title:
+                        missing_tags.append("Title")
+                        score -= 20
+                    else:
+                        if len(title) < 30:
+                            warnings.append(f"Title is too short ({len(title)} chars). Recommended: 30-60 chars.")
+                            score -= 5
+                        elif len(title) > 60:
+                            warnings.append(f"Title is too long ({len(title)} chars). Google may truncate it. Recommended: < 60 chars.")
+                            score -= 5
+                            
+                    # Description Length (70-155 chars)
+                    if not description:
+                        missing_tags.append("Description")
+                        score -= 20
+                    else:
+                        if len(description) < 70:
+                            warnings.append(f"Description is too short ({len(description)} chars). Recommended: 70-155 chars.")
+                            score -= 5
+                        elif len(description) > 155:
+                            warnings.append(f"Description is too long ({len(description)} chars). Recommended: < 155 chars.")
+                            score -= 5
+                            
+                    # Canonical Check
+                    if not canonical:
+                        warnings.append("Missing Canonical URL. This helps prevent duplicate content issues.")
+                        score -= 10
+                    
+                    # OG Check
+                    if not og_tags.get("og:title") or not og_tags.get("og:image"):
+                        warnings.append("Missing key Open Graph tags (og:title, og:image). Link previews will be broken.")
+                        score -= 10
+                        
+                    if score < 0: score = 0
+                    
+                    # Save Result
+                    result = models.MetaTagsResult(
+                        session_id=session_id,
+                        url=url,
+                        title=title,
+                        description=description,
+                        keywords=keywords,
+                        canonical=canonical,
+                        og_tags=json.dumps(og_tags),
+                        twitter_tags=json.dumps(twitter_tags),
+                        schema_tags=json.dumps(schema_tags),
+                        missing_tags=json.dumps(missing_tags),
+                        warnings=json.dumps(warnings),
+                        keyword_consistency=json.dumps(keyword_consistency),
+                        score=score
+                    )
+                    db.add(result)
+                    
+                    session.completed += 1
+                    db.commit()
+                    
+                    await context.close()
+                    
+                except Exception as e:
+                    print(f"Meta Scan Error {url}: {e}")
+            
+            await browser.close()
+            
+            session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+            if session:
+                session.status = "completed"
+                session.completed_at = datetime.utcnow()
+                db.commit()
+
+    except Exception as e:
+        print(f"Meta Audit Fatal Error: {e}")
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if session:
+            session.status = "error"
+            db.commit()
+    finally:
+        db.close()
+
+# ========== XML SITEMAP AUDIT FUNCTIONS ==========
+
+import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
+import httpx
+import time
+
+async def audit_sitemap_logic(sitemap_url: str, session_id: str):
+    db = database.SessionLocal()
+    try:
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if not session: return
+        
+        warnings = []
+        errors = []
+        
+        # --- 1. PERFORMANCE & ROBOTS CHECK ---
+        start_time = time.time()
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            try:
+                # Performance Check
+                resp = await client.get(sitemap_url)
+                load_time_ms = int((time.time() - start_time) * 1000)
+                
+                if resp.status_code != 200:
+                    raise Exception(f"Sitemap returned status code {resp.status_code}")
+                
+                # Content-Type Check & Smart Discovery
+                ctype = resp.headers.get("content-type", "").lower()
+                if "text/html" in ctype:
+                    print(f"HTML detected at {sitemap_url}, attempting Auto-Discovery...")
+                    
+                    found_sitemap = None
+                    
+                    # 1. Check robots.txt
+                    try:
+                        parsed = urlparse(sitemap_url)
+                        base_url = f"{parsed.scheme}://{parsed.netloc}"
+                        robots_resp = await client.get(f"{base_url}/robots.txt", timeout=5.0)
+                        if robots_resp.status_code == 200:
+                            import re
+                            # Find "Sitemap: https://..."
+                            sm_match = re.search(r'Sitemap:\s*(https?://[^\s]+)', robots_resp.text, re.IGNORECASE)
+                            if sm_match:
+                                found_sitemap = sm_match.group(1).strip()
+                                print(f"Discovered via robots.txt: {found_sitemap}")
+                    except Exception as e:
+                        print(f"Robots discovery failed: {e}")
+
+                    # 2. Check common paths if not found
+                    if not found_sitemap:
+                        common_paths = ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml", "/sitemap.txt"]
+                        for path in common_paths:
+                            try:
+                                test_url = f"{base_url}{path}"
+                                head_resp = await client.head(test_url, timeout=3.0)
+                                if head_resp.status_code == 200:
+                                    found_sitemap = test_url
+                                    print(f"Discovered common path: {found_sitemap}")
+                                    break
+                            except: pass
+                    
+                    # 3. If found, Redirect logic
+                    if found_sitemap:
+                        sitemap_url = found_sitemap
+                        # Refetch with new URL
+                        resp = await client.get(sitemap_url)
+                        if resp.status_code != 200: raise Exception("Discovered sitemap unreachable.")
+                        content = resp.content
+                        warnings.append(f"Automatically discovered sitemap at: {found_sitemap}")
+                    
+                    # 4. Fallback: Virtual Sitemap (Crawl the page)
+                    else:
+                        print("No sitemap found. Generating Virtual Sitemap from homepage links...")
+                        import re
+                        page_content = resp.text
+                        # Extract all hrefs
+                        links = re.findall(r'<a\s+(?:[^>]*?\s+)?href=["\'](.*?)["\']', page_content, re.IGNORECASE)
+                        
+                        # Filter internal links
+                        unique_links = set()
+                        base_domain = parsed.netloc
+                        
+                        for link in links:
+                            link = link.strip()
+                            if not link or link.startswith('#') or link.startswith('mailto:') or link.startswith('tel:'):
+                                continue
+                                
+                            # Handle relative URLs
+                            if link.startswith('/'):
+                                full_link = f"{base_url}{link}"
+                            elif not link.startswith('http'):
+                                full_link = f"{base_url}/{link}"
+                            else:
+                                full_link = link
+                                
+                            # Check domain match
+                            try:
+                                link_parsed = urlparse(full_link)
+                                if link_parsed.netloc == base_domain:
+                                    unique_links.add(full_link)
+                            except: pass
+                        
+                        if not unique_links:
+                             raise Exception("No sitemap found and no internal links extracted from homepage.")
+                             
+                        # Construct a "Virtual" XML content for the parser to handle below
+                        # This tricks the existing parser logic to process our crawled links
+                        warnings.append("No XML Sitemap found. Generated 'Virtual Sitemap' by crawling homepage links.")
+                        virtual_xml = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                        for l in unique_links:
+                            virtual_xml += f'<url><loc>{l}</loc><priority>0.5</priority></url>'
+                        virtual_xml += '</urlset>'
+                        
+                        content = virtual_xml.encode('utf-8')
+
+                else:
+                    content = resp.content
+                
+                # Handle GZIP (sitemap.xml.gz)
+                if sitemap_url.endswith('.gz') or "gzip" in ctype:
+                    try:
+                        import gzip
+                        import io
+                        # Check magic header for gzip (1f 8b)
+                        if content.startswith(b'\x1f\x8b'):
+                            content = gzip.decompress(content)
+                    except Exception as gz_err:
+                        print(f"Gzip Decompress Failed: {gz_err}")
+                        # Continue, maybe it wasn't really gzipped
+                
+                # Robots Check (Simple heuristic: check host robots.txt)
+                robots_status = "unknown"
+                try:
+                    final_url = str(resp.url)
+                    parsed = urlparse(sitemap_url) # Use original base checking
+                    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+                    
+                    # Add User-Agent to avoid blocks
+                    robots_resp = await client.get(robots_url, headers={"User-Agent": "SiteTesterPro/1.0"}, timeout=5.0)
+                    
+                    if robots_resp.status_code == 200:
+                        robots_text = robots_resp.text.lower()
+                        s_lower = sitemap_url.lower()
+                        f_lower = final_url.lower()
+                        
+                        # Check both original and final (redirected) URL
+                        if s_lower in robots_text or f_lower in robots_text:
+                            robots_status = "found"
+                        else:
+                            # Advanced Check: Sometimes robots.txt uses relative paths (technically invalid but common)
+                            # e.g. "Sitemap: /sitemap.xml"
+                            path_only = parsed.path.lower()
+                            if path_only and f"sitemap: {path_only}" in robots_text:
+                                robots_status = "found"
+                            else:
+                                robots_status = "missing"
+                    else:
+                        robots_status = "error"
+                except Exception as e:
+                    print(f"Robots check error: {e}")
+                    robots_status = "error"
+
+            except Exception as e:
+                # Fatal fetch error
+                raise Exception(f"Failed to fetch sitemap: {str(e)}")
+
+        # --- 2. PARSING ---
+        root = None
+        is_index = False
+        child_sitemaps = []
+        urls_found = []
+        
+        try:
+            # Attempt 1: Strict Parsing
+            try:
+                root = ET.fromstring(content)
+            except ET.ParseError:
+                # Attempt 2: Sanitization
+                import re
+                txt = content.decode('utf-8', errors='ignore')
+                # Replace & not followed by a valid entity
+                txt = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)', '&amp;', txt)
+                # Remove control characters
+                txt = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', txt)
+                root = ET.fromstring(txt)
+
+            # Detect Type
+            ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+            
+            if root.tag.endswith('sitemapindex') or 'sitemapindex' in root.tag:
+                is_index = True
+                for sm in root.findall('.//s:sitemap', ns) or root.findall('sitemap'):
+                    loc = sm.find('s:loc', ns) if sm.find('s:loc', ns) is not None else sm.find('loc')
+                    if loc is not None and loc.text:
+                        child_sitemaps.append(loc.text.strip())
+            else:
+                for url_entry in root.findall('.//s:url', ns) or root.findall('url'):
+                    loc = url_entry.find('s:loc', ns) if url_entry.find('s:loc', ns) is not None else url_entry.find('loc')
+                    priority = url_entry.find('s:priority', ns) if url_entry.find('s:priority', ns) is not None else url_entry.find('priority')
+                    
+                    if loc is not None and loc.text:
+                        u_obj = {"loc": loc.text.strip()}
+                        if priority is not None and priority.text:
+                            try:
+                                u_obj["priority"] = float(priority.text)
+                            except: pass
+                        urls_found.append(u_obj)
+
+        except Exception as e:
+            # FAILSAFE: SALVAGE MODE (Regex Extraction)
+            print(f"XML Parse Failed, switching to Salvage Mode: {e}")
+            warnings.append(f"Invalid XML format ({str(e)}). Used 'Salvage Mode' to extract data.")
+            
+            import re
+            txt_content = content.decode('utf-8', errors='ignore')
+            
+            # Robust Regex for <loc>, handling <s:loc>, <image:loc>, or whitespace
+            # Matches <loc>...</loc>, <s:loc>...</s:loc>, etc.
+            # Added re.DOTALL to handle newlines inside tags
+            locs = re.findall(r'<(?:\w+:)?loc\s*>(.*?)</(?:\w+:)?loc>', txt_content, re.IGNORECASE | re.DOTALL)
+            
+            # Clean up whitespace/newlines from extracted URLs
+            locs = [l.strip() for l in locs if l.strip()]
+            
+            # If still nothing, try finding any http/https URL inside tags (Desperate Fallback)
+            if not locs:
+                 locs = re.findall(r'>(https?://[^<]+)<', txt_content, re.IGNORECASE)
+                 if locs:
+                     warnings.append("URLs extracted via generic scan (missing scan tags). check structure.")
+
+            # Simple Regex for <sitemapindex>
+            if '<sitemapindex' in txt_content or '<s:sitemapindex' in txt_content:
+                is_index = True
+                child_sitemaps = [l.strip() for l in locs]
+            else:
+                for l in locs:
+                    urls_found.append({"loc": l.strip(), "priority": 0.5})
+
+        if len(urls_found) > 50000:
+             errors.append("Sitemap violates strict limit of 50,000 URLs.")
+
+        # --- 3. ORGANIC CHECK (Reachability) ---
+        reachability_sample = {}
+        if not is_index and urls_found:
+            import random
+            sample_size = min(len(urls_found), 10) # Sample 10 for speed
+            sample = random.sample(urls_found, sample_size)
+            
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                for u in sample:
+                    try:
+                        r = await client.head(u["loc"])
+                        reachability_sample[u["loc"]] = r.status_code
+                    except:
+                        reachability_sample[u["loc"]] = "timeout"
+
+        # --- 4. SCORE CALCULATION ---
+        score = 100
+        if errors: score -= 20 * len(errors)
+        if robots_status == "missing": score -= 10
+        if robots_status == "error": score -= 5
+        if load_time_ms > 1000: score -= 10
+        if load_time_ms > 3000: score -= 20
+        
+        # Check samples
+        dead_links = [s for s, c in reachability_sample.items() if c != 200]
+        if dead_links:
+            score -= 5 * len(dead_links)
+            warnings.append(f"Found {len(dead_links)} broken links in sample (Reachability Check).")
+
+        if score < 0: score = 0
+        
+        # --- SAVE ---
+        avg_pri = 0
+        if urls_found:
+            pris = [u.get("priority", 0.5) for u in urls_found]
+            avg_pri = int((sum(pris) / len(pris)) * 100)
+
+        result = models.SitemapResult(
+            session_id=session_id,
+            url=sitemap_url,
+            is_index=is_index,
+            child_sitemaps=json.dumps(child_sitemaps),
+            url_count=len(urls_found),
+            avg_priority=avg_pri,
+            errors=json.dumps(errors),
+            warnings=json.dumps(warnings),
+            reachability_sample=json.dumps(reachability_sample),
+            robots_status=robots_status,
+            load_time_ms=load_time_ms,
+            score=score
+        )
+        db.add(result)
+        
+        session.completed = 1
+        session.status = "completed"
+        session.completed_at = datetime.utcnow()
+        db.commit()
+
+    except Exception as e:
+        print(f"Sitemap Audit Error: {e}")
         session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
         if session:
             session.status = "error"
@@ -2773,6 +3265,7 @@ async def trigger_visual_test(
 async def trigger_performance_test(
     background_tasks: BackgroundTasks,
     urls: str = Form(...),
+    strategy: str = Form("desktop"),
     user: models.User = Depends(require_auth),
     db: Session = Depends(auth.get_db)
 ):
@@ -2783,7 +3276,7 @@ async def trigger_performance_test(
         session_id=session_id,
         user_id=user.id,
         session_type="performance",
-        name=f"Perf: {len(url_list)} URLs",
+        name=f"Perf ({strategy.capitalize()}): {len(url_list)} URLs",
         urls=json.dumps(url_list),
         browsers=json.dumps(["Chrome"]),
         resolutions=json.dumps(["Default"]),
@@ -2792,7 +3285,7 @@ async def trigger_performance_test(
     db.add(new_session)
     db.commit()
     
-    background_tasks.add_task(audit_performance_logic, url_list, session_id)
+    background_tasks.add_task(audit_performance_logic, url_list, session_id, strategy)
     
     return JSONResponse({
         "status": "started",
@@ -2833,6 +3326,8 @@ async def get_any_results(session_id: str, request: Request, db: Session = Depen
          results = db.query(models.PerformanceAuditResult).filter_by(session_id=session_id).all()
          return [{
              "url": r.url,
+             "device_preset": r.device_preset,
+             "created_at": r.created_at,
              "ttfb": r.ttfb,
              "fcp": r.fcp,
              "score": r.score,
@@ -3041,6 +3536,166 @@ async def trigger_accessibility_test(
 
     return RedirectResponse(url="/platform/accessibility?status=started", status_code=303)
 
+
+# ========== META TAGS ROUTES ==========
+
+@app.post("/api/scan/meta-tags")
+async def trigger_meta_scan(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    urls: str = Form(...),
+    user: models.User = Depends(require_auth),
+    db: Session = Depends(auth.get_db)
+):
+    url_list = [u.strip() for u in urls.splitlines() if u.strip()]
+    
+    if not url_list:
+        if request.headers.get("accept") == "application/json":
+            return JSONResponse({"status": "error", "message": "No URLs provided"}, status_code=400)
+        return RedirectResponse(url="/scan/meta-tags?error=no_urls", status_code=303)
+
+    session_id = f"meta_{uuid.uuid4().hex[:8]}"
+    
+    new_session = models.AuditSession(
+        session_id=session_id,
+        user_id=user.id,
+        session_type="meta-tags",
+        name=f"Meta: {len(url_list)} URLs",
+        urls=json.dumps(url_list),
+        browsers=json.dumps(["Chrome"]),
+        resolutions=json.dumps(["Default"]),
+        total_expected=len(url_list)
+    )
+    db.add(new_session)
+    db.commit()
+    
+    background_tasks.add_task(audit_meta_tags_logic, url_list, session_id)
+    
+    if request.headers.get("accept") == "application/json":
+        return JSONResponse({
+            "status": "started", 
+            "session_id": session_id,
+            "message": "Meta Tags Scan started"
+        })
+
+    return RedirectResponse(url=f"/scan/meta-tags?status=started&session_id={session_id}", status_code=303)
+
+@app.get("/api/results/meta-tags/{session_id}")
+async def get_meta_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
+    user = await get_current_user_from_cookie(request, db)
+    if not user:
+        raise HTTPException(status_code=401)
+        
+    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+    if not session:
+        raise HTTPException(status_code=404)
+        
+    results = db.query(models.MetaTagsResult).filter_by(session_id=session_id).all()
+    
+    return {
+        "status": session.status,
+        "completed": session.completed,
+        "total": session.total_expected,
+        "results": [{
+            "url": r.url,
+            "title": r.title,
+            "description": r.description,
+            "keywords": r.keywords,
+            "canonical": r.canonical,
+            "score": r.score,
+            "og_tags": json.loads(r.og_tags) if r.og_tags else {},
+            "twitter_tags": json.loads(r.twitter_tags) if r.twitter_tags else {},
+            "schema_tags": json.loads(r.schema_tags) if r.schema_tags else [],
+            "missing_tags": json.loads(r.missing_tags) if r.missing_tags else [],
+            "warnings": json.loads(r.warnings) if r.warnings else [],
+            "keyword_consistency": json.loads(r.keyword_consistency) if r.keyword_consistency else {},
+            "created_at": r.created_at
+        } for r in results]
+    }
+
+@app.get("/scan/meta-tags", response_class=HTMLResponse)
+async def meta_tags_page(request: Request, db: Session = Depends(auth.get_db)):
+    user = await get_current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("meta-tags.html", {"request": request, "user": user})
+
+
+# ========== XML SITEMAP ROUTES ==========
+
+@app.post("/api/scan/sitemap")
+async def trigger_sitemap_scan(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    url: str = Form(...),
+    user: models.User = Depends(require_auth),
+    db: Session = Depends(auth.get_db)
+):
+    clean_url = url.strip()
+    if not clean_url:
+        return RedirectResponse(url="/scan/xml-sitemaps?error=no_url", status_code=303)
+
+    session_id = f"sitemap_{uuid.uuid4().hex[:8]}"
+    
+    new_session = models.AuditSession(
+        session_id=session_id,
+        user_id=user.id,
+        session_type="sitemap",
+        name=f"Sitemap: {clean_url}",
+        urls=json.dumps([clean_url]),
+        browsers=json.dumps(["None"]),
+        resolutions=json.dumps(["Default"]),
+        total_expected=1
+    )
+    db.add(new_session)
+    db.commit()
+    
+    background_tasks.add_task(audit_sitemap_logic, clean_url, session_id)
+    
+    return RedirectResponse(url=f"/scan/xml-sitemaps?status=started&session_id={session_id}", status_code=303)
+
+@app.get("/api/results/sitemap/{session_id}")
+async def get_sitemap_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
+    user = await get_current_user_from_cookie(request, db)
+    if not user:
+        raise HTTPException(status_code=401)
+        
+    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+    if not session:
+        raise HTTPException(status_code=404)
+        
+    results = db.query(models.SitemapResult).filter_by(session_id=session_id).first()
+    
+    res_data = {}
+    if results:
+        res_data = {
+            "url": results.url,
+            "is_index": results.is_index,
+            "child_sitemaps": json.loads(results.child_sitemaps) if results.child_sitemaps else [],
+            "url_count": results.url_count,
+            "avg_priority": results.avg_priority,
+            "errors": json.loads(results.errors) if results.errors else [],
+            "warnings": json.loads(results.warnings) if results.warnings else [],
+            "reachability_sample": json.loads(results.reachability_sample) if results.reachability_sample else {},
+            "robots_status": results.robots_status,
+            "load_time_ms": results.load_time_ms,
+            "score": results.score,
+            "created_at": results.created_at
+        }
+    
+    return {
+        "status": session.status,
+        "completed": session.completed,
+        "results": res_data
+    }
+
+@app.get("/scan/xml-sitemaps", response_class=HTMLResponse)
+async def sitemap_page(request: Request, db: Session = Depends(auth.get_db)):
+    user = await get_current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("xml-sitemaps.html", {"request": request, "user": user})
+
 @app.get("/accessibility-results/{session_id}")
 async def get_accessibility_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
     user = await get_current_user_from_cookie(request, db)
@@ -3065,14 +3720,60 @@ async def get_accessibility_results(session_id: str, request: Request, db: Sessi
 
 @app.get("/api/proxy")
 async def proxy_url(url: str):
-    """Proxy endpoint to bypass X-Frame-Options"""
+    """Proxy endpoint to bypass X-Frame-Options with enhanced compatibility and Playwright fallback"""
     if not url.startswith("http"):
         url = "https://" + url
-        
+
+    async def process_content(content_bytes, final_url, headers):
+        """Helper to inject base tag and process headers"""
+        # Inject <base> tag for relative links if HTML
+        content_type = headers.get("content-type", "").lower()
+        if "text/html" in content_type:
+            try:
+                # Use the final URL after redirects for the base tag
+                html = content_bytes.decode("utf-8", errors="replace")
+                
+                # Inject base tag
+                base_tag = f'<base href="{final_url}">'
+                
+                if "<head>" in html:
+                    html = html.replace("<head>", f"<head>{base_tag}", 1)
+                elif "<HEAD>" in html:
+                    html = html.replace("<HEAD>", f"<HEAD>{base_tag}", 1)
+                else:
+                    # If no head, prepend to body or html
+                    html = base_tag + html
+                    
+                content_bytes = html.encode("utf-8")
+                # Update content-type to ensure utf-8
+                if "charset" not in content_type:
+                    headers["content-type"] = "text/html; charset=utf-8"
+            except Exception as e:
+                print(f"Proxy rewrite error: {e}")
+                pass
+        return content_bytes, headers
+
+    # Mimic a real browser to avoid 403 blocks with httpx
+    req_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"'
+    }
+
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(url, timeout=10.0)
+        # 1. Try Fast HTTPX Request first
+        async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
+            resp = await client.get(url, timeout=15.0, headers=req_headers)
             
+            # If rejected by bot protection, trigger fallback
+            if resp.status_code in [403, 406, 503, 429]:
+                 print(f"Proxy: HTTPX failed with {resp.status_code} for {url}. Falling back to Playwright.")
+                 raise Exception("Trigger Playwright Fallback")
+
             # Filter headers that block iframes or cause encoding issues
             excluded_headers = [
                 'x-frame-options', 
@@ -3080,20 +3781,48 @@ async def proxy_url(url: str):
                 'frame-options',
                 'content-encoding',
                 'transfer-encoding',
-                'content-length' 
+                'content-length',
+                'connection',
+                'strict-transport-security'
             ]
             headers = {
                 k: v for k, v in resp.headers.items() 
                 if k.lower() not in excluded_headers
             }
             
-            # Rewrite relative links (simple attempt) - robust rewriting is complex, 
-            # this is a basic "Device Lab" simulation proxy.
-            content = resp.content
+            content_bytes, headers = await process_content(resp.content, str(resp.url), headers)
+            return Response(content=content_bytes, status_code=resp.status_code, headers=headers)
             
-            return Response(content=content, status_code=resp.status_code, headers=headers)
     except Exception as e:
-        return Response(content=f"Proxy Error: {str(e)}", status_code=502)
+        print(f"Proxy HTTPX Error/Fallback: {e}")
+        # 2. Playwright Fallback (Slower but handles JS/Bot Protection)
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                # Use a specific user agent context
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 800}
+                )
+                page = await context.new_page()
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                    # Helper to get full content including iframes/JS modifications? 
+                    # Just page.content() is usually enough for static representation
+                    content = await page.content()
+                    final_url = page.url
+                    await browser.close()
+                    
+                    # Process
+                    content_bytes, _ = await process_content(content.encode("utf-8"), final_url, {"content-type": "text/html"})
+                    return Response(content=content_bytes, status_code=200, headers={"Content-Type": "text/html"})
+                    
+                except Exception as p_err:
+                    await browser.close()
+                    raise p_err
+                    
+        except Exception as final_err:
+            return Response(content=f"Proxy Error: {str(final_err)}", status_code=502)
 
 
 

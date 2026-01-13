@@ -68,12 +68,14 @@
     <!-- Sidebar -->
     <aside class="w-64 glass-panel flex-shrink-0 h-screen overflow-y-auto border-r border-white/5 z-10 flex flex-col">
         <div class="p-6 border-b border-white/5">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
-                    <i data-lucide="activity" class="w-5 h-5"></i>
+            <a href="https://www.nicedigitals.com/" target="_blank" class="flex items-center gap-3 group">
+                <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white overflow-hidden">
+                    <img src="/static/logo.png" alt="SiteTester Pro" class="w-full h-full object-contain">
                 </div>
-                <span class="text-lg font-semibold text-white tracking-tight">SiteTester Pro</span>
-            </div>
+                <span
+                    class="text-lg font-semibold text-white tracking-tight group-hover:text-blue-400 transition-colors">SiteTester
+                    Pro</span>
+            </a>
         </div>
 
         <nav class="flex-1 p-4 space-y-1">
@@ -154,7 +156,7 @@
 
             <a href="/scan/xml-sitemaps"
                 class="sidebar-link flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 group {% if '/scan/xml-sitemaps' in request.url.path %}active{% endif %}">
-                <i data-lucide="sitemap" class="w-4 h-4"></i>
+                <i data-lucide="file-code-2" class="w-4 h-4"></i>
                 <span class="text-sm font-medium">XML Sitemaps</span>
             </a>
         </nav>
@@ -194,6 +196,38 @@
             document.cookie = "access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
             window.location.href = "/login";
         }
+
+        function formatDate(isoString) {
+            if (!isoString) return 'Just now';
+
+            // Ensure we treat the input as UTC if it doesn't have timezone info
+            let dateStr = isoString;
+            if (dateStr.indexOf('Z') === -1 && dateStr.indexOf('+') === -1 && !dateStr.endsWith('UTC')) {
+                dateStr += 'Z';
+            }
+
+            const date = new Date(dateStr);
+
+            // Format: HH:MM, DD-MM-YYYY
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+
+            return `${hours}:${minutes}, ${day}-${month}-${year}`;
+        }
+
+        // Auto-hydrate local dates
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.local-date').forEach(el => {
+                const timestamp = el.getAttribute('data-timestamp');
+                if (timestamp) {
+                    el.textContent = formatDate(timestamp);
+                    el.classList.remove('opacity-0'); // Show after formatting if hidden
+                }
+            });
+        });
     </script>
 </body>
 
