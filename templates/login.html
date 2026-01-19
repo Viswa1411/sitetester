@@ -128,7 +128,7 @@
                         });
                         const data = await res.json();
                         if (res.ok) {
-                            document.cookie = `access_token=${data.access_token}; path=/`;
+                            // Cookie is now set by backend - just redirect
                             window.location.href = '/platform/dashboard';
                         } else {
                             Swal.fire({
@@ -186,7 +186,7 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    document.cookie = `access_token=${result.access_token}; path=/`;
+                    // Cookie is now set by backend - just redirect
                     window.location.href = '/';
                 } else {
                     Swal.fire({

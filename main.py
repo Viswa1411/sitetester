@@ -1424,7 +1424,7 @@ async def login(
     request: LoginRequest,
     db: Session = Depends(auth.get_db)
 ):
-    """Login user via Supabase and return access token"""
+    """Login user and return access token with HttpOnly cookie"""
     print(f"Login attempt: {request.username}")
     
     try:
@@ -1453,11 +1453,25 @@ async def login(
         
         user = login_data["user"]
         
-        return {
+        # Create response with HttpOnly cookie (matching Google login)
+        response = JSONResponse({
             "access_token": login_data["access_token"], 
             "token_type": "bearer", 
             "user": {"id": user.id, "username": user.username}
-        }
+        })
+        
+        # Set HttpOnly cookie
+        response.set_cookie(
+            key="access_token",
+            value=login_data["access_token"],
+            httponly=True,
+            max_age=settings.access_token_expire_minutes * 60,
+            samesite="lax",
+            secure=False  # Set to True in production with HTTPS
+        )
+        
+        return response
+        
     except Exception as e:
         print(f"Login error: {e}")
         if isinstance(e, HTTPException):
