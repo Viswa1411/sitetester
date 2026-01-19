@@ -1,5 +1,11 @@
 /* Combined styles for both static and dynamic audits */
 
+/* Global: Hide placeholder on focus */
+input:focus::placeholder, textarea:focus::placeholder {
+  color: transparent !important;
+  transition: color 0.2s ease;
+}
+
 /* Glow effect for interactive elements */
 .glow-box {
   box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);

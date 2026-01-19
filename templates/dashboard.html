@@ -1,7 +1,7 @@
 {% extends "base_platform.html" %}
 
 {% block content %}
-<div class="p-8 max-w-7xl mx-auto space-y-8">
+<div class="container mx-auto px-6 py-8 space-y-8">
     <!-- Header -->
     <div class="flex justify-between items-end">
         <div>
@@ -18,7 +18,7 @@
             <i data-lucide="zap" class="w-5 h-5 text-blue-400"></i>
             Quick Actions
         </h3>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
             <!-- Unified Audit Removed -->
 
             <a href="/responsive"
@@ -68,6 +68,22 @@
                 </div>
                 <span class="text-sm font-medium text-slate-300 group-hover:text-white">Dynamic Audit</span>
             </a>
+
+            <a href="/scan/meta-tags"
+                class="p-4 bg-slate-800/50 hover:bg-slate-800 border border-white/5 hover:border-blue-500/50 rounded-xl transition group text-center flex flex-col items-center gap-2">
+                <div class="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg group-hover:scale-110 transition">
+                    <i data-lucide="tags" class="w-5 h-5"></i>
+                </div>
+                <span class="text-sm font-medium text-slate-300 group-hover:text-white">Meta Tags</span>
+            </a>
+
+            <a href="/scan/xml-sitemaps"
+                class="p-4 bg-slate-800/50 hover:bg-slate-800 border border-white/5 hover:border-blue-500/50 rounded-xl transition group text-center flex flex-col items-center gap-2">
+                <div class="p-2 bg-teal-500/10 text-teal-400 rounded-lg group-hover:scale-110 transition">
+                    <i data-lucide="file-code-2" class="w-5 h-5"></i>
+                </div>
+                <span class="text-sm font-medium text-slate-300 group-hover:text-white">XML Sitemaps</span>
+            </a>
         </div>
     </div>
 
@@ -92,7 +108,7 @@
         <div class="glass-panel p-0 rounded-xl border border-white/5 overflow-hidden flex flex-col">
             <div class="p-6 border-b border-white/5 flex justify-between items-center">
                 <h3 class="text-lg font-semibold text-white">Recent Activity</h3>
-                <a href="/profile" class="text-sm text-blue-400 hover:text-blue-300">View All</a>
+                <a href="/platform/profile" class="text-sm text-blue-400 hover:text-blue-300">View All</a>
             </div>
 
             <div class="flex-1 overflow-y-auto max-h-[400px]">

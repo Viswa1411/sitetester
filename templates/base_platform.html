@@ -60,6 +60,13 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #475569;
         }
+
+        /* Hide placeholder on focus */
+        input:focus::placeholder,
+        textarea:focus::placeholder {
+            color: transparent !important;
+            transition: color 0.2s ease;
+        }
     </style>
 </head>
 

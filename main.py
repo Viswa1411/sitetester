@@ -46,10 +46,8 @@ import database
 import models
 import auth
 from config import settings
-from supabase import create_client, Client
-
-# Initialize Supabase Client
-supabase: Client = create_client(settings.supabase_url, settings.supabase_key)
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 # Create necessary directories
 os.makedirs("screenshots", exist_ok=True)
@@ -106,11 +104,15 @@ running_tasks = {}
 class LoginRequest(BaseModel):
     username: str
     password: str
+    email: Optional[str] = None
 
 class RegisterRequest(BaseModel):
     email: str
     username: str
     password: str
+
+class GoogleLoginRequest(BaseModel):
+    token: str
 
 # ========== AUTHENTICATION MIDDLEWARE ==========
 
@@ -391,34 +393,7 @@ async def record_videos_async(urls: List[str], selected_browsers: List[str],
                     # Video Path (Local)
                     video_url = f"/videos/{session_id}/{browser_name}/{os.path.basename(video_path_local)}"
                     
-                    # Try Upload to Supabase
-                    try:
-                        filename = os.path.basename(video_path_local)
-                        storage_path = f"{session_id}/{browser_name}/{filename}"
-                        
-                        # Define upload task
-                        def upload_to_supabase():
-                            with open(video_path_local, 'rb') as f:
-                                supabase.storage.from_("videos").upload(
-                                    storage_path,
-                                    f,
-                                    file_options={"content-type": "video/mp4", "upsert": "true"}
-                                )
-                            return supabase.storage.from_("videos").get_public_url(storage_path)
-
-                        # Run upload in thread pool
-                        loop = asyncio.get_running_loop()
-                        public_url = await loop.run_in_executor(executor, upload_to_supabase)
-                        
-                        if public_url:
-                            video_url = public_url
-                            print(f"[Supabase] Uploaded: {video_url}")
-                            # Optional: Remove local file after successful upload to save space
-                            # os.remove(video_path_local) 
-                    except Exception as upload_err:
-                        print(f"[Supabase] Upload Failed: {upload_err}")
-                        # Fallback to local path (video_url is already set)
-
+                    # Supabase upload removed - using local storage
                     print(f"[DYNAMIC] Final Video URL: {video_url}")
                     # Save result to DB
                     result = models.DynamicAuditResult(
@@ -1201,7 +1176,10 @@ async def login_page(request: Request, db: Session = Depends(auth.get_db)):
     user = await get_current_user_from_cookie(request, db)
     if user:
         return RedirectResponse(url="/", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", {
+        "request": request, 
+        "google_client_id": settings.google_client_id
+    })
 
 @app.get("/logout")
 async def logout():
@@ -1215,7 +1193,10 @@ async def register_page(request: Request, db: Session = Depends(auth.get_db)):
     user = await get_current_user_from_cookie(request, db)
     if user:
         return RedirectResponse(url="/", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-    return templates.TemplateResponse("register.html", {"request": request})
+    return templates.TemplateResponse("register.html", {
+        "request": request,
+        "google_client_id": settings.google_client_id
+    })
 
 @app.get("/platform/history")
 async def history_page(request: Request, db: Session = Depends(auth.get_db)):
@@ -1440,21 +1421,32 @@ async def register(
 
 @app.post("/api/auth/login")
 async def login(
-    request: LoginRequest,  # Accept JSON request
+    request: LoginRequest,
     db: Session = Depends(auth.get_db)
 ):
     """Login user via Supabase and return access token"""
     print(f"Login attempt: {request.username}")
     
     try:
-        # Supabase Login (requires email, but we support username login via lookup)
-        email = request.username
-        if "@" not in email:
-            # Lookup email by username if username provided
-            user = db.query(models.User).filter(models.User.username == request.username).first()
+        if request.email:
+            # Strict mode: Check if email exists
+            user = db.query(models.User).filter(models.User.email == request.email).first()
             if not user:
-                 raise HTTPException(status_code=400, detail="Incorrect username or password")
-            email = user.email
+                 raise HTTPException(status_code=400, detail="Incorrect email or password")
+            
+            # Verify username matches
+            if user.username != request.username:
+                 raise HTTPException(status_code=400, detail="Username does not match email")
+            
+            email = request.email
+        else:
+            # Fallback (though frontend should send both)
+            email = request.username
+            if "@" not in email:
+                user = db.query(models.User).filter(models.User.username == request.username).first()
+                if not user:
+                     raise HTTPException(status_code=400, detail="Incorrect username or password")
+                email = user.email
 
         # Authenticate locally
         login_data = auth.login_user(email, request.password, db)
@@ -1468,7 +1460,72 @@ async def login(
         }
     except Exception as e:
         print(f"Login error: {e}")
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+@app.post("/api/auth/google")
+async def google_login(request: GoogleLoginRequest, db: Session = Depends(auth.get_db)):
+    """Handle Google Login: Verify token, create/get user, issue local token"""
+    try:
+        # Verify Google Token
+        id_info = id_token.verify_oauth2_token(
+            request.token, 
+            google_requests.Request(), 
+            settings.google_client_id
+        )
+        
+        email = id_info.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Google token missing email")
+            
+        # Check if user exists
+        user = db.query(models.User).filter(models.User.email == email).first()
+        
+        if not user:
+            # Register new user automatically
+            username = email.split("@")[0]
+            # Ensure unique username
+            base_username = username
+            counter = 1
+            while db.query(models.User).filter(models.User.username == username).first():
+                username = f"{base_username}{counter}"
+                counter += 1
+            
+            # Create random password (user relies on Google Auth)
+            random_password = str(uuid.uuid4())
+            user = auth.register_user(email, random_password, username, db)
+            print(f"Registered new Google user: {user.username}")
+        
+        # Create local access token
+        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+        access_token = auth.create_access_token(
+            data={"sub": user.id, "email": user.email},
+            expires_delta=access_token_expires
+        )
+        
+        # Set cookie
+        response = JSONResponse({
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "user": {"id": user.id, "username": user.username}
+        })
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            max_age=settings.access_token_expire_minutes * 60,
+            samesite="lax",
+            secure=False # Set to True in production with HTTPS
+        )
+        return response
+
+    except ValueError as e:
+        # Invalid token
+        raise HTTPException(status_code=401, detail=f"Invalid Google token: {str(e)}")
+    except Exception as e:
+        print(f"Google Login Error: {e}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
 
 @app.post("/api/auth/logout")
 async def logout():
@@ -3212,8 +3269,61 @@ async def xml_sitemaps_view(request: Request, user: models.User = Depends(requir
     return templates.TemplateResponse("xml-sitemaps.html", {"request": request, "user": user})
 
 @app.get("/platform/history", response_class=HTMLResponse)
+async def history_view(request: Request, user: models.User = Depends(require_auth), db: Session = Depends(auth.get_db)):
+    # Fetch all sessions for history, ordered by newest first
+    sessions = db.query(models.AuditSession).filter(
+        models.AuditSession.user_id == user.id
+    ).order_by(models.AuditSession.created_at.desc()).all()
+    
+    # Pre-process sessions if needed (e.g. JSON parsing) for the template
+    # The existing template seems to expect objects, but let's pass them as is for now
+    # equivalent to how dashboard might use them
+    
+    return templates.TemplateResponse("history.html", {
+        "request": request, 
+        "user": user,
+        "sessions": sessions
+    })
+
+@app.get("/platform/visual", response_class=HTMLResponse)
 async def visual_test_view(request: Request, user: models.User = Depends(require_auth)):
     return templates.TemplateResponse("visual_regression.html", {"request": request, "user": user})
+
+@app.get("/platform/profile", response_class=HTMLResponse)
+async def profile_view(request: Request, user: models.User = Depends(require_auth)):
+    return templates.TemplateResponse("profile.html", {"request": request, "user": user})
+
+@app.get("/profile")
+async def profile_redirect():
+    return RedirectResponse(url="/platform/profile")
+
+@app.get("/responsive", response_class=HTMLResponse)
+async def responsive_view(request: Request, user: models.User = Depends(require_auth)):
+    return templates.TemplateResponse("responsive.html", {"request": request, "user": user})
+
+@app.get("/responsive/dynamic", response_class=HTMLResponse)
+async def dynamic_view(request: Request, user: models.User = Depends(require_auth)):
+    return templates.TemplateResponse("dynamic-audit.html", {"request": request, "user": user})
+
+@app.get("/h1-audit", response_class=HTMLResponse)
+async def h1_audit_view(request: Request, user: models.User = Depends(require_auth)):
+    return templates.TemplateResponse("h1-audit.html", {"request": request, "user": user})
+
+@app.get("/phone-audit", response_class=HTMLResponse)
+async def phone_audit_view(request: Request, user: models.User = Depends(require_auth)):
+    return templates.TemplateResponse("phone-audit.html", {"request": request, "user": user})
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_view(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_view(request: Request):
+    return templates.TemplateResponse("register.html", {"request": request})
+
+@app.get("/forgot-password", response_class=HTMLResponse)
+async def forgot_password_view(request: Request):
+    return templates.TemplateResponse("forgot-password.html", {"request": request})
 
 @app.get("/platform/performance", response_class=HTMLResponse)
 async def performance_test_view(request: Request, user: models.User = Depends(require_auth), db: Session = Depends(auth.get_db)):

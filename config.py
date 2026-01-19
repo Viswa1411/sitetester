@@ -14,9 +14,9 @@ class Settings(BaseSettings):
     # Database Configuration
     database_url: str
     
-    # Supabase Configuration
-    supabase_url: str
-    supabase_key: str
+    # Google Configuration
+    google_client_id: str
+    google_client_secret: str
     
     # Security Settings
     secret_key: str
