@@ -1,0 +1,146 @@
+{% extends "base_platform.html" %}
+
+{% block content %}
+<div class="container mx-auto px-6 py-8">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-semibold text-white tracking-tight">URL Content Comparison</h1>
+        <p class="text-slate-400 mt-1">Compare visible text content from two URLs and highlight differences</p>
+    </div>
+
+    <!-- Comparison Form -->
+    <div class="glass-panel p-8 rounded-xl border border-white/5 max-w-4xl mx-auto">
+        <form id="compareForm" class="space-y-6">
+            <!-- URL Inputs -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- URL A -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">
+                        <i data-lucide="link" class="w-4 h-4 inline mr-1"></i>
+                        URL A (Original)
+                    </label>
+                    <input type="url" id="urlA" name="url_a" placeholder="https://example.com/page-1" required
+                        class="w-full px-4 py-3 bg-slate-800/50 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition" />
+                </div>
+
+                <!-- URL B -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">
+                        <i data-lucide="link" class="w-4 h-4 inline mr-1"></i>
+                        URL B (Comparison)
+                    </label>
+                    <input type="url" id="urlB" name="url_b" placeholder="https://example.com/page-2" required
+                        class="w-full px-4 py-3 bg-slate-800/50 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition" />
+                </div>
+            </div>
+
+            <!-- Comparison Options -->
+            <div class="border-t border-white/5 pt-6">
+                <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                    <i data-lucide="settings" class="w-4 h-4 text-blue-400"></i>
+                    Comparison Options
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label
+                        class="flex items-center gap-3 p-3 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition cursor-pointer">
+                        <input type="checkbox" id="ignoreCase" name="ignore_case"
+                            class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0" />
+                        <div>
+                            <div class="text-sm font-medium text-slate-300">Ignore Case</div>
+                            <div class="text-xs text-slate-500">Treat uppercase and lowercase as the same</div>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-center gap-3 p-3 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition cursor-pointer">
+                        <input type="checkbox" id="ignoreWhitespace" name="ignore_whitespace"
+                            class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0" />
+                        <div>
+                            <div class="text-sm font-medium text-slate-300">Ignore Extra Whitespace</div>
+                            <div class="text-xs text-slate-500">Remove duplicate spaces and tabs</div>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-center gap-3 p-3 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition cursor-pointer">
+                        <input type="checkbox" id="ignoreLinebreaks" name="ignore_linebreaks"
+                            class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0" />
+                        <div>
+                            <div class="text-sm font-medium text-slate-300">Ignore Line Breaks</div>
+                            <div class="text-xs text-slate-500">Compare as continuous text</div>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-center gap-3 p-3 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition cursor-pointer">
+                        <input type="checkbox" id="sortLines" name="sort_lines"
+                            class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0" />
+                        <div>
+                            <div class="text-sm font-medium text-slate-300">Sort Lines</div>
+                            <div class="text-xs text-slate-500">Alphabetically sort before comparing</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="flex justify-center pt-4">
+                <button type="submit" id="compareBtn"
+                    class="px-8 py-3 bg-gradient-to-r from-blue-500 to-violet-500 hover:from-blue-600 hover:to-violet-600 text-white font-semibold rounded-lg transition flex items-center gap-2 shadow-lg shadow-blue-500/20">
+                    <i data-lucide="git-compare" class="w-5 h-5"></i>
+                    <span>Compare URLs</span>
+                </button>
+            </div>
+        </form>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden mt-8 text-center">
+            <div class="inline-flex items-center gap-3 px-6 py-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent"></div>
+                <div class="text-blue-400 font-medium" id="loadingText">Fetching and comparing URLs...</div>
+            </div>
+        </div>
+
+        <!-- Error Display -->
+        <div id="errorDisplay" class="hidden mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <div class="flex items-start gap-3">
+                <i data-lucide="alert-circle" class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5"></i>
+                <div>
+                    <div class="text-red-400 font-semibold mb-1">Comparison Failed</div>
+                    <div class="text-red-300 text-sm" id="errorMessage"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Section -->
+    <div class="mt-8 max-w-4xl mx-auto">
+        <div class="glass-panel p-6 rounded-xl border border-white/5">
+            <h3 class="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                <i data-lucide="info" class="w-5 h-5 text-blue-400"></i>
+                How It Works
+            </h3>
+            <ul class="space-y-2 text-slate-400 text-sm">
+                <li class="flex items-start gap-2">
+                    <i data-lucide="check" class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5"></i>
+                    <span>Automatically extracts visible text content from both URLs</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <i data-lucide="check" class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5"></i>
+                    <span>Removes scripts, styles, navigation, and other non-content elements</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <i data-lucide="check" class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5"></i>
+                    <span>Highlights added, removed, and unchanged text with color coding</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <i data-lucide="check" class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5"></i>
+                    <span>Provides detailed statistics on content differences</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script src="/static/url-compare.js"></script>
+{% endblock %}

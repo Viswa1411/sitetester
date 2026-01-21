@@ -227,3 +227,30 @@ class SitemapResult(Base):
     score = Column(Integer, default=0)
     
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class URLComparisonResult(Base):
+    __tablename__ = "url_comparison_results"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("audit_sessions.session_id"), nullable=False)
+    url_a = Column(String, nullable=False)
+    url_b = Column(String, nullable=False)
+    
+    # Extracted content
+    content_a = Column(Text, nullable=False)
+    content_b = Column(Text, nullable=False)
+    
+    # Comparison options used
+    ignore_case = Column(Boolean, default=False)
+    ignore_whitespace = Column(Boolean, default=False)
+    ignore_linebreaks = Column(Boolean, default=False)
+    sort_lines = Column(Boolean, default=False)
+    
+    # Results (JSON)
+    diff_result = Column(Text, nullable=False)  # JSON of diff operations
+    stats = Column(Text, nullable=False)  # JSON of comparison stats
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<URLComparisonResult(session_id='{self.session_id}', url_a='{self.url_a}', url_b='{self.url_b}')>"

@@ -1,0 +1,249 @@
+{% extends "base_platform.html" %}
+
+{% block content %}
+<div class="container mx-auto px-6 py-8">
+    <!-- Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-semibold text-white tracking-tight">Comparison Results</h1>
+                <p class="text-slate-400 mt-1">Detailed diff analysis of URL content</p>
+            </div>
+            <a href="/compare-urls"
+                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition flex items-center gap-2">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                <span>New Comparison</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- URLs Being Compared -->
+    <div class="glass-panel p-6 rounded-xl border border-white/5 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">URL A (Original)</div>
+                <div class="flex items-start gap-2">
+                    <i data-lucide="link" class="w-4 h-4 text-blue-400 flex-shrink-0 mt-1"></i>
+                    <a href="{{ url_a }}" target="_blank" class="text-blue-400 hover:text-blue-300 break-all text-sm">{{
+                        url_a }}</a>
+                </div>
+            </div>
+            <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">URL B (Comparison)</div>
+                <div class="flex items-start gap-2">
+                    <i data-lucide="link" class="w-4 h-4 text-violet-400 flex-shrink-0 mt-1"></i>
+                    <a href="{{ url_b }}" target="_blank"
+                        class="text-violet-400 hover:text-violet-300 break-all text-sm">{{ url_b }}</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Applied Options -->
+        {% if options.ignore_case or options.ignore_whitespace or options.ignore_linebreaks or options.sort_lines %}
+        <div class="mt-4 pt-4 border-t border-white/5">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Applied Options</div>
+            <div class="flex flex-wrap gap-2">
+                {% if options.ignore_case %}
+                <span class="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded">Ignore Case</span>
+                {% endif %}
+                {% if options.ignore_whitespace %}
+                <span class="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded">Ignore Whitespace</span>
+                {% endif %}
+                {% if options.ignore_linebreaks %}
+                <span class="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded">Ignore Line Breaks</span>
+                {% endif %}
+                {% if options.sort_lines %}
+                <span class="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded">Sort Lines</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Statistics -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div class="glass-panel p-4 rounded-xl border border-white/5 text-center">
+            <div class="text-2xl font-bold text-white">{{ stats.similarity_percent }}%</div>
+            <div class="text-xs text-slate-400 mt-1">Similarity</div>
+        </div>
+        <div class="glass-panel p-4 rounded-xl border border-white/5 text-center">
+            <div class="text-2xl font-bold text-emerald-400">+{{ stats.added }}</div>
+            <div class="text-xs text-slate-400 mt-1">Lines Added</div>
+        </div>
+        <div class="glass-panel p-4 rounded-xl border border-white/5 text-center">
+            <div class="text-2xl font-bold text-red-400">-{{ stats.removed }}</div>
+            <div class="text-xs text-slate-400 mt-1">Lines Removed</div>
+        </div>
+        <div class="glass-panel p-4 rounded-xl border border-white/5 text-center">
+            <div class="text-2xl font-bold text-slate-400">{{ stats.unchanged }}</div>
+            <div class="text-xs text-slate-400 mt-1">Unchanged</div>
+        </div>
+        <div class="glass-panel p-4 rounded-xl border border-white/5 text-center">
+            <div class="text-2xl font-bold text-blue-400">{{ stats.total_changes }}</div>
+            <div class="text-xs text-slate-400 mt-1">Total Changes</div>
+        </div>
+    </div>
+
+    <!-- Diff View Controls -->
+    <div class="glass-panel p-4 rounded-xl border border-white/5 mb-6">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="text-sm font-semibold text-white">View Mode:</div>
+                <div class="flex gap-2">
+                    <button id="unifiedViewBtn"
+                        class="px-3 py-1.5 bg-blue-500 text-white text-sm rounded-lg transition">
+                        Unified
+                    </button>
+                    <button id="splitViewBtn"
+                        class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded-lg transition">
+                        Split
+                    </button>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="hideUnchanged"
+                        class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500">
+                    <span class="text-sm text-slate-300">Hide Unchanged Lines</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diff Display -->
+    <div class="glass-panel rounded-xl border border-white/5 overflow-hidden">
+        <div class="p-4 border-b border-white/5 bg-slate-800/30">
+            <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+                <i data-lucide="file-diff" class="w-5 h-5 text-blue-400"></i>
+                Content Differences
+            </h3>
+        </div>
+
+        <!-- Unified View -->
+        <div id="unifiedView" class="p-6">
+            <div class="font-mono text-sm space-y-0.5 max-h-[600px] overflow-y-auto">
+                {% for operation in diff_operations %}
+                <div class="diff-line diff-{{ operation.type }} px-4 py-2 rounded {% if operation.type == 'unchanged' %}hover:bg-slate-800/30{% endif %}"
+                    data-type="{{ operation.type }}">
+                    {% if operation.type == 'added' %}
+                    <span class="text-emerald-400 font-bold mr-2">+</span><span class="text-emerald-300">{{
+                        operation.content }}</span>
+                    {% elif operation.type == 'removed' %}
+                    <span class="text-red-400 font-bold mr-2">-</span><span class="text-red-300">{{ operation.content
+                        }}</span>
+                    {% else %}
+                    <span class="text-slate-600 mr-2"> </span><span class="text-slate-400">{{ operation.content
+                        }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Split View (Hidden by default) -->
+        <div id="splitView" class="hidden">
+            <div class="grid grid-cols-2 divide-x divide-white/5">
+                <!-- URL A Content -->
+                <div class="p-6">
+                    <div class="text-sm font-semibold text-slate-400 mb-4 flex items-center gap-2">
+                        <i data-lucide="file-text" class="w-4 h-4"></i>
+                        URL A (Original)
+                    </div>
+                    <div class="font-mono text-sm space-y-0.5 max-h-[600px] overflow-y-auto">
+                        {% for operation in diff_operations %}
+                        {% if operation.type != 'added' %}
+                        <div class="diff-line px-4 py-2 rounded {% if operation.type == 'removed' %}bg-red-500/10 text-red-300{% else %}text-slate-400{% endif %}"
+                            data-type="{{ operation.type }}">
+                            {{ operation.content }}
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- URL B Content -->
+                <div class="p-6">
+                    <div class="text-sm font-semibold text-slate-400 mb-4 flex items-center gap-2">
+                        <i data-lucide="file-text" class="w-4 h-4"></i>
+                        URL B (Comparison)
+                    </div>
+                    <div class="font-mono text-sm space-y-0.5 max-h-[600px] overflow-y-auto">
+                        {% for operation in diff_operations %}
+                        {% if operation.type != 'removed' %}
+                        <div class="diff-line px-4 py-2 rounded {% if operation.type == 'added' %}bg-emerald-500/10 text-emerald-300{% else %}text-slate-400{% endif %}"
+                            data-type="{{ operation.type }}">
+                            {{ operation.content }}
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .diff-added {
+        background-color: rgba(16, 185, 129, 0.1);
+        border-left: 3px solid rgb(16, 185, 129);
+    }
+
+    .diff-removed {
+        background-color: rgba(239, 68, 68, 0.1);
+        border-left: 3px solid rgb(239, 68, 68);
+    }
+
+    .diff-unchanged {
+        opacity: 0.6;
+    }
+
+    .diff-unchanged.hidden-line {
+        display: none;
+    }
+</style>
+
+<script>
+    // View mode toggle
+    const unifiedViewBtn = document.getElementById('unifiedViewBtn');
+    const splitViewBtn = document.getElementById('splitViewBtn');
+    const unifiedView = document.getElementById('unifiedView');
+    const splitView = document.getElementById('splitView');
+
+    unifiedViewBtn.addEventListener('click', () => {
+        unifiedView.classList.remove('hidden');
+        splitView.classList.add('hidden');
+        unifiedViewBtn.classList.remove('bg-slate-700', 'hover:bg-slate-600', 'text-slate-300');
+        unifiedViewBtn.classList.add('bg-blue-500', 'text-white');
+        splitViewBtn.classList.remove('bg-blue-500', 'text-white');
+        splitViewBtn.classList.add('bg-slate-700', 'hover:bg-slate-600', 'text-slate-300');
+    });
+
+    splitViewBtn.addEventListener('click', () => {
+        splitView.classList.remove('hidden');
+        unifiedView.classList.add('hidden');
+        splitViewBtn.classList.remove('bg-slate-700', 'hover:bg-slate-600', 'text-slate-300');
+        splitViewBtn.classList.add('bg-blue-500', 'text-white');
+        unifiedViewBtn.classList.remove('bg-blue-500', 'text-white');
+        unifiedViewBtn.classList.add('bg-slate-700', 'hover:bg-slate-600', 'text-slate-300');
+    });
+
+    // Hide unchanged lines toggle
+    const hideUnchangedCheckbox = document.getElementById('hideUnchanged');
+    hideUnchangedCheckbox.addEventListener('change', (e) => {
+        const unchangedLines = document.querySelectorAll('.diff-unchanged');
+        unchangedLines.forEach(line => {
+            if (e.target.checked) {
+                line.classList.add('hidden-line');
+            } else {
+                line.classList.remove('hidden-line');
+            }
+        });
+    });
+
+    // Initialize Lucide icons
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+</script>
+{% endblock %}

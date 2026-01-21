@@ -4509,6 +4509,319 @@ async def proxy_url(url: str):
             return Response(content=f"Proxy Error: {str(final_err)}", status_code=502)
 
 
+# ========== URL COMPARISON FUNCTIONS ==========
+
+from bs4 import BeautifulSoup
+import difflib
+
+async def extract_text_from_url(url: str) -> str:
+    """Extract visible text content from a URL using BeautifulSoup"""
+    try:
+        # Mimic a real browser to avoid blocks
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0, verify=False) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+        
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(response.content, 'lxml')
+        
+        # Remove unwanted elements (scripts, styles, navigation, etc.)
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'noscript']):
+            element.decompose()
+        
+        # Extract visible text
+        text = soup.get_text(separator='\n', strip=True)
+        
+        # Clean up extra whitespace
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        text = '\n'.join(lines)
+        
+        return text
+        
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL (HTTP {e.response.status_code}): {url}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=408, detail=f"Request timeout while fetching: {url}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error fetching URL: {str(e)}")
+
+
+def normalize_text(text: str, options: dict) -> str:
+    """Normalize text based on comparison options"""
+    # Remove leading/trailing whitespace from each line
+    lines = text.split('\n')
+    lines = [line.strip() for line in lines]
+    
+    # Ignore extra whitespace
+    if options.get('ignore_whitespace', False):
+        lines = [re.sub(r'\s+', ' ', line) for line in lines]
+    
+    # Ignore case
+    if options.get('ignore_case', False):
+        lines = [line.lower() for line in lines]
+    
+    # Sort lines
+    if options.get('sort_lines', False):
+        lines = sorted(lines)
+    
+    # Join back
+    text = '\n'.join(lines)
+    
+    # Ignore line breaks (convert to single line)
+    if options.get('ignore_linebreaks', False):
+        text = ' '.join(text.split('\n'))
+    
+    return text
+
+
+def compare_texts(text_a: str, text_b: str) -> dict:
+    """Compare two texts and return diff results with statistics"""
+    # Split into lines for comparison
+    lines_a = text_a.split('\n')
+    lines_b = text_b.split('\n')
+    
+    # Generate diff using difflib
+    differ = difflib.Differ()
+    diff = list(differ.compare(lines_a, lines_b))
+    
+    # Also use SequenceMatcher for similarity ratio
+    matcher = difflib.SequenceMatcher(None, text_a, text_b)
+    similarity = matcher.ratio() * 100  # Convert to percentage
+    
+    # Parse diff results
+    diff_operations = []
+    added_count = 0
+    removed_count = 0
+    modified_count = 0
+    unchanged_count = 0
+    
+    for line in diff:
+        if line.startswith('+ '):
+            diff_operations.append({'type': 'added', 'content': line[2:]})
+            added_count += 1
+        elif line.startswith('- '):
+            diff_operations.append({'type': 'removed', 'content': line[2:]})
+            removed_count += 1
+        elif line.startswith('? '):
+            # Indicator line, skip
+            continue
+        else:
+            diff_operations.append({'type': 'unchanged', 'content': line[2:]})
+            unchanged_count += 1
+    
+    # Calculate statistics
+    total_lines = len(lines_a) + len(lines_b)
+    stats = {
+        'total_lines_a': len(lines_a),
+        'total_lines_b': len(lines_b),
+        'added': added_count,
+        'removed': removed_count,
+        'unchanged': unchanged_count,
+        'similarity_percent': round(similarity, 2),
+        'total_changes': added_count + removed_count
+    }
+    
+    return {
+        'diff_operations': diff_operations,
+        'stats': stats
+    }
+
+
+# Pydantic model for URL comparison request
+class URLCompareRequest(BaseModel):
+    url_a: str
+    url_b: str
+    ignore_case: bool = False
+    ignore_whitespace: bool = False
+    ignore_linebreaks: bool = False
+    sort_lines: bool = False
+
+
+# ========== URL COMPARISON API ENDPOINTS ==========
+
+@app.post("/api/compare-urls")
+async def compare_urls_api(
+    request: URLCompareRequest,
+    user: models.User = Depends(require_auth),
+    db: Session = Depends(auth.get_db)
+):
+    """API endpoint to compare content from two URLs"""
+    try:
+        # Generate session ID
+        session_id = str(uuid.uuid4())
+        
+        # Extract text from both URLs
+        print(f"[URL COMPARE] Extracting text from URL A: {request.url_a}")
+        content_a = await extract_text_from_url(request.url_a)
+        
+        print(f"[URL COMPARE] Extracting text from URL B: {request.url_b}")
+        content_b = await extract_text_from_url(request.url_b)
+        
+        # Check if content was extracted
+        if not content_a or len(content_a.strip()) < 10:
+            raise HTTPException(status_code=400, detail=f"Could not extract sufficient content from URL A. The page may be empty or JavaScript-rendered.")
+        
+        if not content_b or len(content_b.strip()) < 10:
+            raise HTTPException(status_code=400, detail=f"Could not extract sufficient content from URL B. The page may be empty or JavaScript-rendered.")
+        
+        # Normalize text based on options
+        options = {
+            'ignore_case': request.ignore_case,
+            'ignore_whitespace': request.ignore_whitespace,
+            'ignore_linebreaks': request.ignore_linebreaks,
+            'sort_lines': request.sort_lines
+        }
+        
+        normalized_a = normalize_text(content_a, options)
+        normalized_b = normalize_text(content_b, options)
+        
+        # Perform comparison
+        print(f"[URL COMPARE] Comparing texts...")
+        comparison_result = compare_texts(normalized_a, normalized_b)
+        
+        # Create audit session
+        audit_session = models.AuditSession(
+            session_id=session_id,
+            user_id=user.id,
+            session_type="url-compare",
+            name=f"URL Comparison: {request.url_a[:50]}... vs {request.url_b[:50]}...",
+            urls=json.dumps([request.url_a, request.url_b]),
+            browsers=json.dumps([]),
+            resolutions=json.dumps([]),
+            status="completed",
+            total_expected=1,
+            completed=1,
+            completed_at=datetime.utcnow()
+        )
+        db.add(audit_session)
+        
+        # Save comparison result
+        comparison_record = models.URLComparisonResult(
+            session_id=session_id,
+            url_a=request.url_a,
+            url_b=request.url_b,
+            content_a=content_a,
+            content_b=content_b,
+            ignore_case=request.ignore_case,
+            ignore_whitespace=request.ignore_whitespace,
+            ignore_linebreaks=request.ignore_linebreaks,
+            sort_lines=request.sort_lines,
+            diff_result=json.dumps(comparison_result['diff_operations']),
+            stats=json.dumps(comparison_result['stats'])
+        )
+        db.add(comparison_record)
+        db.commit()
+        
+        print(f"[URL COMPARE] Comparison completed. Session ID: {session_id}")
+        
+        return {
+            "success": True,
+            "session_id": session_id,
+            "stats": comparison_result['stats']
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[URL COMPARE] Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Comparison failed: {str(e)}")
+
+
+@app.get("/api/compare-urls/{session_id}")
+async def get_comparison_results(
+    session_id: str,
+    user: models.User = Depends(require_auth),
+    db: Session = Depends(auth.get_db)
+):
+    """Get comparison results for a session"""
+    try:
+        # Get comparison result
+        result = db.query(models.URLComparisonResult).filter_by(session_id=session_id).first()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Comparison not found")
+        
+        # Parse JSON fields
+        diff_operations = json.loads(result.diff_result)
+        stats = json.loads(result.stats)
+        
+        return {
+            "session_id": session_id,
+            "url_a": result.url_a,
+            "url_b": result.url_b,
+            "options": {
+                "ignore_case": result.ignore_case,
+                "ignore_whitespace": result.ignore_whitespace,
+                "ignore_linebreaks": result.ignore_linebreaks,
+                "sort_lines": result.sort_lines
+            },
+            "diff_operations": diff_operations,
+            "stats": stats,
+            "created_at": result.created_at.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/compare-urls")
+async def url_compare_page(
+    request: Request,
+    user: models.User = Depends(require_auth),
+    db: Session = Depends(auth.get_db)
+):
+    """Render URL comparison input page"""
+    return templates.TemplateResponse("url-compare.html", {
+        "request": request,
+        "user": user
+    })
+
+
+@app.get("/compare-results/{session_id}")
+async def url_compare_results_page(
+    request: Request,
+    session_id: str,
+    user: models.User = Depends(require_auth),
+    db: Session = Depends(auth.get_db)
+):
+    """Render URL comparison results page"""
+    # Get comparison result
+    result = db.query(models.URLComparisonResult).filter_by(session_id=session_id).first()
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Comparison not found")
+    
+    # Parse JSON fields
+    diff_operations = json.loads(result.diff_result)
+    stats = json.loads(result.stats)
+    
+    return templates.TemplateResponse("url-compare-results.html", {
+        "request": request,
+        "user": user,
+        "session_id": session_id,
+        "url_a": result.url_a,
+        "url_b": result.url_b,
+        "options": {
+            "ignore_case": result.ignore_case,
+            "ignore_whitespace": result.ignore_whitespace,
+            "ignore_linebreaks": result.ignore_linebreaks,
+            "sort_lines": result.sort_lines
+        },
+        "diff_operations": diff_operations,
+        "stats": stats,
+        "created_at": result.created_at
+    })
+
+
+
 
 
 if __name__ == "__main__":
