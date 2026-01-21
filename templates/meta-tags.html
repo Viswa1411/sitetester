@@ -1,483 +1,90 @@
 {% extends "base_platform.html" %}
 
 {% block content %}
-<div class="p-6 max-w-7xl mx-auto space-y-8">
-
-    <!-- Header & Input -->
-    <div class="glass-panel p-8 rounded-2xl border-l-4 border-blue-500 shadow-2xl relative overflow-hidden">
-        <div
-            class="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none">
+<div class="p-8 max-w-7xl mx-auto h-full flex flex-col font-sans">
+    <div class="mb-8 flex justify-between items-start">
+        <div>
+            <h1 class="text-3xl font-bold text-white mb-2">Meta Tags Scanner</h1>
+            <p class="text-gray-400">Analyze your SEO meta tags, generate rich social previews, and validate your
+                structured data.</p>
         </div>
+        <a href="/platform/history?type=meta-tags"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition flex items-center gap-2">
+            <i data-lucide="history" class="w-4 h-4"></i>
+            View History
+        </a>
+    </div>
 
-        <div class="relative z-10">
-            <h1 class="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                <i data-lucide="tags" class="w-8 h-8 text-blue-400"></i>
-                Meta Tags Scanner
-                <span
-                    class="px-3 py-1 bg-blue-500/20 text-blue-300 text-xs rounded-full font-mono border border-blue-500/30">ELITE</span>
-            </h1>
-            <p class="text-slate-400 mb-8 max-w-2xl">
-                Analyze your SEO meta tags, generate rich social previews, and validate your structured data
-                (Schema.org) for maximum visibility on Google and Social Media.
-            </p>
-
-            <form id="meta-form" action="/api/scan/meta-tags" method="POST" class="space-y-4 max-w-3xl">
-                <div class="flex gap-4">
-                    <div class="relative flex-1 group">
-                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <i data-lucide="link"
-                                class="w-5 h-5 text-slate-500 group-focus-within:text-blue-400 transition-colors"></i>
-                        </div>
-                        <input type="url" name="urls" required
-                            class="w-full bg-slate-900/50 border border-slate-700 text-white pl-10 pr-4 py-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-500"
-                            placeholder="https://example.com (Enter URL to scan)">
+    <!-- SCANNER SECTION -->
+    <div id="input-section">
+        <form id="scan-form" class="max-w-5xl mx-auto space-y-8">
+            <!-- URL Entry -->
+            <div class="glass-panel rounded-xl p-6">
+                <h3 class="text-lg font-bold text-purple-300 mb-4">Page URL</h3>
+                <div class="relative flex-1 group">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i data-lucide="link"
+                            class="w-5 h-5 text-slate-500 group-focus-within:text-purple-400 transition-colors"></i>
                     </div>
-                    <button type="submit"
-                        class="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-                        <span>Scan Now</span>
-                        <i data-lucide="arrow-right" class="w-4 h-4"></i>
-                    </button>
+                    <input type="url" id="target-url" required
+                        class="w-full bg-slate-900/50 border border-slate-700 text-white pl-10 pr-4 py-3 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all placeholder-slate-500"
+                        placeholder="https://example.com">
                 </div>
-            </form>
+                <p class="text-xs text-gray-500 mt-2">Enter the full URL of the page you want to analyze.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Session Name -->
+                <!-- Project Name -->
+                <div class="glass-panel rounded-xl p-6">
+                    <h3 class="text-lg font-bold text-purple-300 mb-4">Project Name</h3>
+                    <input type="text" id="session-name" placeholder="Enter project name..." required
+                        class="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500">
+                </div>
+
+                <!-- Info -->
+                <div class="glass-panel rounded-xl p-6 flex flex-col justify-center">
+                    <h3 class="text-lg font-bold text-purple-300 mb-2">What we scan</h3>
+                    <ul class="space-y-2 text-sm text-gray-400">
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Live Meta Extraction</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Schema.org Validation</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Social Card Previews</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Keyword Consistency Check</li>
+                    </ul>
+                </div>
+            </div>
+
+            <button type="submit"
+                class="w-full max-w-md mx-auto block py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-xl hover:from-purple-500 hover:to-pink-500 shadow-lg shadow-purple-500/20 transition transform hover:-translate-y-0.5">
+                Start Meta Scan
+            </button>
+        </form>
+    </div>
+
+    <!-- PROGRESS SECTION -->
+    <div id="progress-section" class="hidden flex-1 flex items-center justify-center">
+        <div class="glass-panel rounded-2xl p-12 shadow-2xl max-w-2xl mx-auto w-full text-center">
+            <h2 class="text-3xl font-bold text-purple-400 mb-8">Analyzing Page...</h2>
+            <div class="w-full bg-gray-900 rounded-full h-8 mb-6 overflow-hidden border border-gray-700">
+                <div id="progress-bar"
+                    class="bg-gradient-to-r from-purple-500 to-pink-600 h-full transition-all duration-300"
+                    style="width: 0%">
+                </div>
+            </div>
+            <p id="progress-status" class="text-gray-400">Fetching page content...</p>
         </div>
     </div>
 
-    <!-- Loading State -->
-    <div id="loading" class="hidden">
-        <div class="flex flex-col items-center justify-center p-12 glass-panel rounded-2xl">
-            <div class="w-16 h-16 border-4 border-blue-600/30 border-t-blue-500 rounded-full animate-spin mb-4"></div>
-            <h3 class="text-xl font-semibold text-white animate-pulse">Analyzing Meta Tags...</h3>
-            <p class="text-slate-400 mt-2">Fetching Title, Description, OG Tags, Schema, and more</p>
-        </div>
-    </div>
-
-    <!-- Results Container -->
-    <div id="results-container" class="hidden space-y-8">
-
-        <!-- Score & Overview -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <!-- Health Score -->
-            <div
-                class="glass-panel p-6 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group">
-                <div
-                    class="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 group-hover:scale-110 transition-transform duration-500">
-                </div>
-                <div class="relative z-10 text-center">
-                    <p class="text-slate-400 text-sm font-medium uppercase tracking-wider mb-2">SEO Health Score</p>
-                    <div class="text-5xl font-bold text-white mb-2" id="score-display">--</div>
-                    <div class="h-2 w-24 bg-slate-800 rounded-full overflow-hidden">
-                        <div id="score-bar"
-                            class="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 w-0 transition-all duration-1000">
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Title Stat -->
-            <div class="glass-panel p-6 rounded-2xl border-t border-white/5">
-                <div class="flex items-center justify-between mb-4">
-                    <p class="text-slate-400 text-sm font-medium">Title Length</p>
-                    <i data-lucide="type" class="w-4 h-4 text-slate-500"></i>
-                </div>
-                <div class="flex items-end gap-2">
-                    <span id="title-len" class="text-3xl font-bold text-white">--</span>
-                    <span class="text-slate-500 text-sm mb-1">chars</span>
-                </div>
-                <p class="text-xs text-slate-400 mt-2">Ideal: 30-60 chars</p>
-                <div id="title-status" class="mt-2 text-xs font-medium px-2 py-1 rounded-md bg-slate-800 inline-block">
-                    Checking...</div>
-            </div>
-
-            <!-- Description Stat -->
-            <div class="glass-panel p-6 rounded-2xl border-t border-white/5">
-                <div class="flex items-center justify-between mb-4">
-                    <p class="text-slate-400 text-sm font-medium">Description Length</p>
-                    <i data-lucide="align-left" class="w-4 h-4 text-slate-500"></i>
-                </div>
-                <div class="flex items-end gap-2">
-                    <span id="desc-len" class="text-3xl font-bold text-white">--</span>
-                    <span class="text-slate-500 text-sm mb-1">chars</span>
-                </div>
-                <p class="text-xs text-slate-400 mt-2">Ideal: 70-155 chars</p>
-                <div id="desc-status" class="mt-2 text-xs font-medium px-2 py-1 rounded-md bg-slate-800 inline-block">
-                    Checking...</div>
-            </div>
-
-            <!-- Canonical Stat -->
-            <div class="glass-panel p-6 rounded-2xl border-t border-white/5">
-                <div class="flex items-center justify-between mb-4">
-                    <p class="text-slate-400 text-sm font-medium">Canonical</p>
-                    <i data-lucide="git-merge" class="w-4 h-4 text-slate-500"></i>
-                </div>
-                <div id="canonical-status" class="text-lg font-medium text-white break-all">--</div>
-                <p class="text-xs text-slate-500 mt-2">Prevents duplicate content</p>
-            </div>
-        </div>
-
-        <!-- Previews Section -->
-        <h2 class="text-xl font-semibold text-white mt-8 mb-4 border-l-4 border-purple-500 pl-3">Live Previews</h2>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-            <!-- Google SERP Preview -->
-            <div class="glass-panel p-6 rounded-2xl">
-                <h3 class="text-sm font-medium text-slate-400 mb-4 flex items-center gap-2">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg"
-                        class="w-4 h-4" alt="Google">
-                    Google Search Result
-                </h3>
-                <div class="bg-white p-4 rounded-lg shadow-sm font-arial max-w-xl">
-                    <div class="flex items-center gap-2 mb-1">
-                        <div
-                            class="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center text-xs text-gray-500 overflow-hidden">
-                            <img id="g-favicon" src="" class="w-full h-full object-cover hidden">
-                            <span id="g-favicon-ph">G</span>
-                        </div>
-                        <div class="flex flex-col">
-                            <span id="g-site-name" class="text-[#202124] text-sm">example.com</span>
-                            <span id="g-url"
-                                class="text-[#202124] text-xs truncate max-w-[200px]">https://example.com/page</span>
-                        </div>
-                        <i data-lucide="more-vertical" class="w-4 h-4 text-gray-400 ml-auto"></i>
-                    </div>
-                    <h3 id="g-title" class="text-[#1a0dab] text-xl hover:underline cursor-pointer truncate">Page Title
-                        Goes Here</h3>
-                    <p id="g-desc" class="text-[#4d5156] text-sm mt-1 line-clamp-2">This is where the meta description
-                        will appear. It should ideally be between 150-160 characters to avoid being truncated in search
-                        results.</p>
-                </div>
-            </div>
-
-            <!-- Social Media Preview (Facebook/LinkedIn style) -->
-            <div class="glass-panel p-6 rounded-2xl">
-                <h3 class="text-sm font-medium text-slate-400 mb-4 flex items-center gap-2">
-                    <i data-lucide="share-2" class="w-4 h-4"></i>
-                    Social Share (Facebook/LinkedIn)
-                </h3>
-                <div class="bg-[#f0f2f5] rounded-lg overflow-hidden max-w-xl border border-gray-200">
-                    <div class="aspect-video bg-gray-300 relative overflow-hidden">
-                        <img id="og-image" src="" class="w-full h-full object-cover hidden">
-                        <div id="og-image-ph"
-                            class="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">No OG Image
-                        </div>
-                    </div>
-                    <div class="bg-[#f0f2f5] p-3 border-t border-gray-200">
-                        <div id="og-site" class="text-xs text-[#65676b] uppercase font-semibold mb-0.5">EXAMPLE.COM
-                        </div>
-                        <h3 id="og-title"
-                            class="text-[#050505] font-semibold text-base leading-tight mb-1 line-clamp-2">Open Graph
-                            Title</h3>
-                        <p id="og-desc" class="text-[#65676b] text-sm line-clamp-1">Description for social media
-                            sharing...</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Elite Analysis Panels -->
-        <h2 class="text-xl font-semibold text-white mt-8 mb-4 border-l-4 border-green-500 pl-3">Elite Analysis</h2>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-            <!-- Structured Data -->
-            <div class="glass-panel p-6 rounded-2xl">
-                <h3 class="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                    <i data-lucide="code-2" class="w-5 h-5 text-green-400"></i>
-                    Structured Data (Schema.org)
-                </h3>
-                <div id="schema-container" class="space-y-3">
-                    <!-- Populated by JS -->
-                    <div class="text-slate-500 italic">No structured data detected.</div>
-                </div>
-            </div>
-
-            <!-- Keyword Consistency -->
-            <div class="glass-panel p-6 rounded-2xl">
-                <h3 class="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                    <i data-lucide="bar-chart-2" class="w-5 h-5 text-yellow-400"></i>
-                    Keyword Consistency
-                </h3>
-                <p class="text-sm text-slate-400 mb-4">Do your meta tag keywords actually appear in your content?</p>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="text-xs text-slate-500 border-b border-white/10">
-                                <th class="py-2">Keyword</th>
-                                <th class="py-2 text-right">Frequency</th>
-                                <th class="py-2 text-right">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="keyword-table" class="text-sm text-slate-300">
-                            <!-- Populated by JS -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Detailed Tags Table -->
-        <h2 class="text-xl font-semibold text-white mt-8 mb-4 border-l-4 border-blue-500 pl-3">Full Metadata</h2>
-        <div class="glass-panel rounded-2xl overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead class="bg-slate-900/50">
-                        <tr>
-                            <th class="p-4 text-xs font-medium text-slate-400 uppercase tracking-wider">Tag Type</th>
-                            <th class="p-4 text-xs font-medium text-slate-400 uppercase tracking-wider">Key</th>
-                            <th class="p-4 text-xs font-medium text-slate-400 uppercase tracking-wider">Value</th>
-                        </tr>
-                    </thead>
-                    <tbody id="full-tags-body" class="divide-y divide-white/5 text-sm">
-                        <!-- Populated by JS -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Recommendations -->
-        <div class="glass-panel p-6 rounded-2xl border border-red-500/20 bg-red-500/5">
-            <h3 class="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <i data-lucide="alert-triangle" class="w-5 h-5 text-red-400"></i>
-                Recommendations
-            </h3>
-            <ul id="warnings-list" class="space-y-2">
-                <!-- Populated by JS -->
-            </ul>
-        </div>
+    <!-- RESULTS SECTION -->
+    <div id="results-container" class="hidden mt-8 space-y-8 pb-20">
+        <!-- Results injected here -->
     </div>
 </div>
 
-<script>
-    const form = document.getElementById('meta-form');
-    const loading = document.getElementById('loading');
-    const resultContainer = document.getElementById('results-container');
-    const scanBtn = form.querySelector('button');
-
-    // Check URL params for status
-    const urlParams = new URLSearchParams(window.location.search);
-    const status = urlParams.get('status');
-    const sessionId = urlParams.get('session_id');
-
-    if (status === 'started' && sessionId) {
-        startPolling(sessionId);
-    } else if (status === 'completed' && sessionId) {
-        // Fetch results immediately
-        fetchResults(sessionId);
-    }
-
-    async function fetchResults(sid) {
-        loading.classList.remove('hidden');
-        resultContainer.classList.add('hidden');
-        form.classList.add('opacity-50', 'pointer-events-none');
-
-        try {
-            const res = await fetch(`/api/results/meta-tags/${sid}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.results && data.results.length > 0) {
-                    renderResults(data.results[0]);
-                    loading.classList.add('hidden');
-                    resultContainer.classList.remove('hidden');
-                    form.classList.remove('opacity-50', 'pointer-events-none');
-                }
-            }
-        } catch (e) {
-            console.error(e);
-            loading.classList.add('hidden');
-            form.classList.remove('opacity-50', 'pointer-events-none');
-        }
-    }
-
-    form.addEventListener('submit', (e) => {
-        // Form submits normally to POST route, simpler than fetch for now to handle background task init
-        // But to restart polling, we'll let the redirect handle it
-        scanBtn.disabled = true;
-        scanBtn.innerHTML = `<div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> Scanning...`;
-    });
-
-    function startPolling(sid) {
-        loading.classList.remove('hidden');
-        resultContainer.classList.add('hidden');
-        form.classList.add('opacity-50', 'pointer-events-none');
-
-        const interval = setInterval(async () => {
-            try {
-                const res = await fetch(`/api/results/meta-tags/${sid}`);
-                if (!res.ok) return;
-
-                const data = await res.json();
-
-                if (data.status === 'completed' && data.results.length > 0) {
-                    clearInterval(interval);
-                    renderResults(data.results[0]);
-                    loading.classList.add('hidden');
-                    resultContainer.classList.remove('hidden');
-                    form.classList.remove('opacity-50', 'pointer-events-none');
-                } else if (data.status === 'error') {
-                    clearInterval(interval);
-                    alert("Scan failed. Please try again.");
-                    loading.classList.add('hidden');
-                    form.classList.remove('opacity-50', 'pointer-events-none');
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }, 1000);
-    }
-
-    function renderResults(res) {
-        // --- SCORE ---
-        const scoreDisplay = document.getElementById('score-display');
-        const scoreBar = document.getElementById('score-bar');
-        scoreDisplay.innerText = res.score;
-        scoreBar.style.width = res.score + '%';
-
-        let scoreColor = 'from-red-500 to-orange-500';
-        if (res.score >= 90) scoreColor = 'from-green-400 to-emerald-600';
-        else if (res.score >= 70) scoreColor = 'from-yellow-400 to-orange-500';
-        scoreBar.className = `h-full w-0 transition-all duration-1000 bg-gradient-to-r ${scoreColor}`;
-        setTimeout(() => scoreBar.style.width = res.score + '%', 100);
-
-        // --- STATS ---
-        // Title
-        const tLen = res.title ? res.title.length : 0;
-        document.getElementById('title-len').innerText = tLen;
-        const tStatus = document.getElementById('title-status');
-        if (tLen >= 30 && tLen <= 60) {
-            tStatus.innerText = "Perfect Length";
-            tStatus.className = "mt-2 text-xs font-medium px-2 py-1 rounded-md bg-green-500/20 text-green-300 inline-block";
-        } else {
-            tStatus.innerText = tLen < 30 ? "Too Short" : "Too Long";
-            tStatus.className = "mt-2 text-xs font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-300 inline-block";
-        }
-
-        // Desc
-        const dLen = res.description ? res.description.length : 0;
-        document.getElementById('desc-len').innerText = dLen;
-        const dStatus = document.getElementById('desc-status');
-        if (dLen >= 70 && dLen <= 155) {
-            dStatus.innerText = "Perfect Length";
-            dStatus.className = "mt-2 text-xs font-medium px-2 py-1 rounded-md bg-green-500/20 text-green-300 inline-block";
-        } else {
-            dStatus.innerText = dLen < 70 ? "Too Short" : "Too Long";
-            dStatus.className = "mt-2 text-xs font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-300 inline-block";
-        }
-
-        // Canonical
-        const cStatus = document.getElementById('canonical-status');
-        if (res.canonical) {
-            cStatus.innerText = "Valid";
-            cStatus.className = "text-lg font-medium text-green-400";
-        } else {
-            cStatus.innerText = "Missing";
-            cStatus.className = "text-lg font-medium text-red-400";
-        }
-
-        // --- PREVIEWS ---
-        // Google
-        document.getElementById('g-title').innerText = res.title || "No Title Found";
-        document.getElementById('g-desc').innerText = res.description || "No description found.";
-        document.getElementById('g-url').innerText = res.url;
-        document.getElementById('g-site-name').innerText = new URL(res.url).hostname;
-
-        // OG
-        const ogTitle = res.og_tags['og:title'] || res.title || "No Title";
-        const ogDesc = res.og_tags['og:description'] || res.description || "No description";
-        const ogImg = res.og_tags['og:image'];
-        const ogSite = res.og_tags['og:site_name'] || new URL(res.url).hostname;
-
-        document.getElementById('og-title').innerText = ogTitle;
-        document.getElementById('og-desc').innerText = ogDesc;
-        document.getElementById('og-site').innerText = ogSite.toUpperCase();
-
-        const ogImgEl = document.getElementById('og-image');
-        const ogImgPh = document.getElementById('og-image-ph');
-        if (ogImg) {
-            ogImgEl.src = ogImg;
-            ogImgEl.classList.remove('hidden');
-            ogImgPh.classList.add('hidden');
-        } else {
-            ogImgEl.classList.add('hidden');
-            ogImgPh.classList.remove('hidden');
-        }
-
-        // --- ELITE PANELS ---
-
-        // Schema
-        const schemaContainer = document.getElementById('schema-container');
-        schemaContainer.innerHTML = '';
-        if (res.schema_tags && res.schema_tags.length > 0) {
-            res.schema_tags.forEach(s => {
-                const type = s['@type'];
-                const div = document.createElement('div');
-                div.className = "p-3 bg-slate-800 rounded-lg border border-white/5 flex items-center justify-between";
-                div.innerHTML = `
-                    <span class="text-green-300 font-mono text-sm">${type}</span>
-                    <i data-lucide="check-circle" class="w-4 h-4 text-green-500"></i>
-                `;
-                schemaContainer.appendChild(div);
-            });
-        } else {
-            schemaContainer.innerHTML = `<div class="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-300 text-sm">No structured data found.</div>`;
-        }
-
-        // Keyword Consistency
-        const kwTable = document.getElementById('keyword-table');
-        kwTable.innerHTML = '';
-        if (res.keyword_consistency) {
-            // Sort by freq
-            const sorted = Object.entries(res.keyword_consistency).sort(((a, b) => b[1] - a[1]));
-            sorted.slice(0, 8).forEach(([word, count]) => {
-                const row = document.createElement('tr');
-                row.className = "border-b border-white/5 last:border-0";
-                const color = count > 0 ? "text-green-400" : "text-red-400";
-                const status = count > 0 ? "Found" : "Missing in Body";
-                row.innerHTML = `
-                    <td class="py-2 text-slate-300 capitalize">${word}</td>
-                    <td class="py-2 text-right text-slate-400">${count}</td>
-                    <td class="py-2 text-right ${color} text-xs font-semibold">${status}</td>
-                `;
-                kwTable.appendChild(row);
-            });
-        }
-
-        // --- WARNINGS ---
-        const wList = document.getElementById('warnings-list');
-        wList.innerHTML = '';
-        if (res.warnings && res.warnings.length > 0) {
-            res.warnings.forEach(w => {
-                const li = document.createElement('li');
-                li.className = "text-red-300 text-sm flex items-start gap-2";
-                li.innerHTML = `<span class="mt-1">•</span> <span>${w}</span>`;
-                wList.appendChild(li);
-            });
-        } else {
-            wList.innerHTML = `<li class="text-green-400 text-sm flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> No critical issues found!</li>`;
-        }
-
-        // --- FULL TABLE ---
-        const tbody = document.getElementById('full-tags-body');
-        tbody.innerHTML = '';
-
-        function addRow(type, key, val) {
-            if (!val) return;
-            const row = document.createElement('tr');
-            row.className = "hover:bg-white/5 transition-colors";
-            row.innerHTML = `
-                <td class="p-4 text-slate-400 whitespace-nowrap">${type}</td>
-                <td class="p-4 text-blue-400 font-mono text-xs whitespace-nowrap">${key}</td>
-                <td class="p-4 text-slate-300 break-all font-mono text-xs">${typeof val === 'object' ? JSON.stringify(val) : val}</td>
-            `;
-            tbody.appendChild(row);
-        }
-
-        addRow('Meta', 'Title', res.title);
-        addRow('Meta', 'Description', res.description);
-        addRow('Meta', 'Keywords', res.keywords);
-        addRow('Link', 'Canonical', res.canonical);
-
-        if (res.og_tags) Object.entries(res.og_tags).forEach(([k, v]) => addRow('OpenGraph', k, v));
-        if (res.twitter_tags) Object.entries(res.twitter_tags).forEach(([k, v]) => addRow('Twitter', k, v));
-
-        lucide.createIcons();
-    }
-</script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="/static/meta-tags.js"></script>
 {% endblock %}

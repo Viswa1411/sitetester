@@ -6,18 +6,6 @@ const stopButton = document.getElementById('stop-button');
 let sessionId = null;
 let pollInterval = null;
 
-// Get authentication token from cookie
-function getToken() {
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (name === 'access_token') {
-            return value;
-        }
-    }
-    return null;
-}
-
 // Initialize drop zone
 dropZone.onclick = () => fileInput.click();
 
@@ -36,25 +24,6 @@ fileInput.onchange = () => {
 // Form submission
 form.onsubmit = async (e) => {
     e.preventDefault();
-
-    // Check authentication
-    const token = getToken();
-    if (!token) {
-        Swal.fire({
-            icon: 'warning',
-            title: 'Authentication Required',
-            text: 'Please log in to start an audit.',
-            background: '#0f172a',
-            color: '#f8fafc',
-            confirmButtonColor: '#3b82f6',
-            confirmButtonText: 'Go to Login'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = "/login";
-            }
-        });
-        return;
-    }
 
     const manualUrls = document.getElementById('manual-urls').value;
 
@@ -102,9 +71,6 @@ form.onsubmit = async (e) => {
     try {
         const res = await fetch("/upload/h1", {
             method: "POST",
-            headers: {
-                'Authorization': `Bearer ${token}`
-            },
             body: formData
         });
 
@@ -199,12 +165,7 @@ form.onsubmit = async (e) => {
 // Load results
 async function loadResults() {
     try {
-        const token = getToken();
-        const res = await fetch(`/h1-results/${sessionId}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
+        const res = await fetch(`/api/results/h1/${sessionId}`);
 
         if (!res.ok) {
             throw new Error("Failed to load results");
@@ -221,6 +182,72 @@ async function loadResults() {
         `;
     }
 }
+
+// ... displayResults ... (omitted for brevity, not changing)
+
+// Check if we should auto-load results from URL parameters
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    const sessionIdParam = urlParams.get('session_id') || urlParams.get('session'); // Support both
+    const restartParam = urlParams.get('restart');
+
+    // Handle restart - pre-fill form from sessionStorage
+    if (restartParam) {
+        const restartConfig = sessionStorage.getItem('restartConfig');
+        if (restartConfig) {
+            try {
+                const config = JSON.parse(restartConfig);
+
+                // Pre-fill manual URLs textarea
+                if (config.urls && config.urls.length > 0) {
+                    const urlsTextarea = document.getElementById('manual-urls');
+                    if (urlsTextarea) {
+                        urlsTextarea.value = config.urls.join('\n');
+                    }
+                }
+
+                // Pre-fill session name
+                if (config.name) {
+                    const sessionNameInput = document.querySelector('input[name="session_name"]');
+                    if (sessionNameInput) {
+                        sessionNameInput.value = config.name + ' (Restarted)';
+                    }
+                }
+
+                // Clear sessionStorage after using
+                sessionStorage.removeItem('restartConfig');
+
+                // Show success message and auto-submit
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Session Restarted',
+                    text: 'Starting H1 audit with previous configuration...',
+                    background: '#0f172a',
+                    color: '#f8fafc',
+                    confirmButtonColor: '#3b82f6',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+
+                // Auto-submit the form after a short delay
+                setTimeout(() => {
+                    form.dispatchEvent(new Event('submit'));
+                }, 2000);
+            } catch (e) {
+                console.error('Error loading restart config:', e);
+            }
+        }
+    }
+
+    // Handle completed status - show results
+    if (status === 'completed' && sessionIdParam) {
+        document.getElementById('upload-section').classList.add('hidden');
+        document.getElementById('results-section').classList.remove('hidden');
+        sessionId = sessionIdParam;
+        loadResults();
+    }
+});
 
 // Display results
 function displayResults(results) {
@@ -321,16 +348,21 @@ function displayResults(results) {
                                     </td>
                                     <td class="py-4 px-4">
                                         ${h1Texts.length > 0 ?
-                `<div class="max-w-xs">
-                                                ${h1Texts.map(text => `<p class="text-sm text-gray-300 mb-1">"${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"</p>`).join('')}
+                `<div class="space-y-1">
+                                                ${h1Texts.map(text => `<div class="text-sm text-gray-300">"${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"</div>`).join('')}
                                             </div>` :
                 '<p class="text-gray-400 text-sm">No H1 tags found</p>'
             }
                                     </td>
-                                    <td class="py-4 px-4">
+                                    <td class="py-4 px-4 align-top">
                                         ${issues.length > 0 ?
-                `<div class="max-w-xs">
-                                                ${issues.map(issue => `<p class="text-sm text-yellow-300 mb-1">${issue}</p>`).join('')}
+                `<div class="space-y-2">
+                                                <div class="text-sm text-yellow-300 font-semibold">${issues.join(', ')}</div>
+                                                ${h1Texts.length > 1 ?
+                    `<div class="ml-3 space-y-1 mt-2 border-l-2 border-yellow-500/30 pl-3">
+                                                        ${h1Texts.map(text => `<div class="text-xs text-gray-400">• ${text}</div>`).join('')}
+                                                    </div>` : ''
+                }
                                             </div>` :
                 '<p class="text-gray-400 text-sm">No issues</p>'
             }
@@ -370,31 +402,12 @@ async function stopSession() {
         return;
     }
 
-    const token = getToken();
-    if (!token) {
-        Swal.fire({
-            icon: 'warning',
-            title: 'Authentication Required',
-            text: 'Please log in to continue.',
-            background: '#0f172a',
-            color: '#f8fafc',
-            confirmButtonColor: '#3b82f6',
-            confirmButtonText: 'Go to Login'
-        }).then(() => {
-            window.location.href = "/login";
-        });
-        return;
-    }
-
     try {
         stopButton.disabled = true;
         stopButton.textContent = "Stopping...";
 
         const response = await fetch(`/api/sessions/${sessionId}/stop`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            method: 'POST'
         });
 
         if (response.ok) {
@@ -425,15 +438,4 @@ async function stopSession() {
         stopButton.textContent = "Stop Session";
     }
 }
-// Check if we should auto-load results from URL parameters
-(function checkAutoLoad() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const status = urlParams.get('status');
-    const sessionParam = urlParams.get('session');
-    if (status === 'completed' && sessionParam) {
-        document.getElementById('upload-section').classList.add('hidden');
-        document.getElementById('results-section').classList.remove('hidden');
-        sessionId = sessionParam;
-        loadResults(sessionParam);
-    }
-})();
+

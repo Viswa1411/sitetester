@@ -1120,6 +1120,587 @@ def h1_audit_task(urls: List[str], session_id: str, user_id: int, session_name: 
     finally:
         db.close()
 
+
+async def audit_performance_task(urls: List[str], session_id: str, strategy: str = "desktop"):
+    """Background task for Performance audit using Playwright (Threaded/Sync wrapper)"""
+    print(f"DEBUG: Starting performance audit task for {session_id}")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _audit_performance_sync, urls, session_id, strategy)
+
+def _audit_performance_sync(urls: List[str], session_id: str, strategy: str):
+    print(f"DEBUG: Performance sync thread started for {session_id}")
+    from playwright.sync_api import sync_playwright
+    
+    db = database.SessionLocal()
+    try:
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if not session: return
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            
+            completed_count = 0
+            for url in urls:
+                # Refresh session
+                db.expire_all()
+                session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+                if not session or session.status == "stopped":
+                    break
+                    
+                try:
+                    if strategy == "mobile":
+                        # iPhone 12
+                        device = p.devices['iPhone 12']
+                        context = browser.new_context(**device)
+                    else:
+                        context = browser.new_context()
+
+                    page = context.new_page()
+                    try:
+                        # Navigate
+                        page.goto(url, wait_until="load", timeout=45000)
+                        
+                        # Get Timing
+                        timings_str = page.evaluate("JSON.stringify(window.performance.timing)")
+                        timings = json.loads(timings_str)
+                        
+                        nav_start = timings['navigationStart']
+                        ttfb = max(0, timings['responseStart'] - nav_start)
+                        dom_load = max(0, timings['domContentLoadedEventEnd'] - nav_start)
+                        page_load = max(0, timings['loadEventEnd'] - nav_start)
+                        
+                        # FCP
+                        fcp = 0
+                        try:
+                            fcp_raw = page.evaluate("""() => {
+                                const paint = performance.getEntriesByType('paint').find(e => e.name === 'first-contentful-paint');
+                                return paint ? paint.startTime : 0;
+                            }""")
+                            fcp = int(fcp_raw)
+                        except: pass
+                        
+                        # Resources
+                        resource_count = page.evaluate("performance.getEntriesByType('resource').length")
+                        
+                        # Score
+                        score = 100
+                        if page_load > 3000: score -= 10
+                        if page_load > 5000: score -= 20
+                        if ttfb > 500: score -= 10
+                        if score < 0: score = 0
+                        
+                        result = models.PerformanceAuditResult(
+                            session_id=session_id,
+                            url=url,
+                            device_preset="Mobile" if strategy == "mobile" else "Desktop",
+                            ttfb=ttfb,
+                            fcp=fcp,
+                            dom_load=dom_load,
+                            page_load=page_load,
+                            resource_count=resource_count,
+                            score=score
+                        )
+                        db.add(result)
+                        db.commit()
+                        
+                    finally:
+                        page.close()
+                        context.close()
+                        
+                except Exception as e:
+                    print(f"Perf Error {url}: {e}")
+                    # Log error in DB?
+                    result = models.PerformanceAuditResult(
+                        session_id=session_id,
+                        url=url,
+                        score=0
+                    )
+                    db.add(result)
+                    db.commit()
+
+                completed_count += 1
+                session.completed = completed_count
+                db.commit()
+
+            session.status = "completed"
+            session.completed_at = datetime.utcnow()
+            db.commit()
+            browser.close()
+            
+    except Exception as e:
+        print(f"Performance Audit Fatal Error: {e}")
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if session:
+            session.status = "error"
+            db.commit()
+    finally:
+        db.close()
+
+async def audit_meta_tags_logic(urls: List[str], session_id: str):
+    """Background task for Meta Tags audit using raw HTTP + Regex to avoid Playwright overhead/bugs"""
+    db = database.SessionLocal()
+    try:
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if not session: return
+
+        import httpx
+        
+        async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
+            completed_count = 0
+            for url in urls:
+                db.refresh(session)
+                if session.status == "stopped": break
+                
+                try:
+                    resp = await client.get(url, timeout=30)
+                    html = resp.text
+                    
+                    # Title
+                    title = ""
+                    title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+                    if title_match: title = title_match.group(1).strip()
+                    
+                    # Description
+                    description = ""
+                    desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', html, re.IGNORECASE)
+                    if not desc_match:
+                        desc_match = re.search(r'<meta[^>]*content=["\'](.*?)["\'][^>]*name=["\']description["\']', html, re.IGNORECASE)
+                    if desc_match: description = desc_match.group(1).strip()
+                    
+                    # Keywords
+                    keywords = ""
+                    kw_match = re.search(r'<meta[^>]*name=["\']keywords["\'][^>]*content=["\'](.*?)["\']', html, re.IGNORECASE)
+                    if kw_match: keywords = kw_match.group(1).strip()
+                    
+                    # Canonical
+                    canonical = ""
+                    canon_match = re.search(r'<link[^>]*rel=["\']canonical["\'][^>]*href=["\'](.*?)["\']', html, re.IGNORECASE)
+                    if canon_match: canonical = canon_match.group(1).strip()
+                    
+                    # OG Tags
+                    og_tags = {}
+                    og_matches = re.finditer(r'<meta[^>]*property=["\'](og:.*?)["\'][^>]*content=["\'](.*?)["\']', html, re.IGNORECASE)
+                    for m in og_matches:
+                        og_tags[m.group(1)] = m.group(2)
+
+                    # Twitter Tags
+                    twitter_tags = {}
+                    tw_matches = re.finditer(r'<meta[^>]*name=["\'](twitter:.*?)["\'][^>]*content=["\'](.*?)["\']', html, re.IGNORECASE)
+                    for m in tw_matches:
+                        twitter_tags[m.group(1)] = m.group(2)
+                    
+                    # Schema
+                    schema_tags = []
+                    schema_matches = re.finditer(r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.IGNORECASE | re.DOTALL)
+                    for m in schema_matches:
+                        try:
+                            schema_tags.append(json.loads(m.group(1)))
+                        except:
+                            pass
+                    
+                    # --- Rich Analysis ---
+                    
+                    # Keyword Consistency
+                    from collections import Counter
+                    def tokenize(text):
+                        if not text: return []
+                        # Simple regex tokenizer for 3+ letter words
+                        return [w.lower() for w in re.findall(r'[a-zA-Z]{3,}', text)]
+                    
+                    # Extract visible text (simple regex approximation)
+                    # Remove scripts, styles, html tags
+                    body_text = re.sub(r'<script.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+                    body_text = re.sub(r'<style.*?</style>', '', body_text, flags=re.DOTALL | re.IGNORECASE)
+                    body_text = re.sub(r'<[^>]+>', ' ', body_text)
+                    
+                    body_tokens = tokenize(body_text)
+                    body_counts = Counter(body_tokens)
+                    
+                    target_keywords = tokenize(title + " " + keywords + " " + description)
+                    target_keywords = list(set(target_keywords))
+                    
+                    keyword_consistency = {}
+                    for kw in target_keywords:
+                        keyword_consistency[kw] = body_counts.get(kw, 0)
+                        
+                    # Validation
+                    warnings = []
+                    missing_tags = []
+                    score = 100
+                    
+                    # Title Checks
+                    if not title:
+                        missing_tags.append("Title")
+                        score -= 20
+                    elif len(title) < 30:
+                        warnings.append(f"Title is too short ({len(title)} chars). Recommended: 30-60 chars.")
+                        score -= 5
+                    elif len(title) > 60:
+                        warnings.append(f"Title is too long ({len(title)} chars). Recommended: < 60 chars.")
+                        score -= 5
+                        
+                    # Description Checks
+                    if not description:
+                        missing_tags.append("Description")
+                        score -= 20
+                    elif len(description) < 70:
+                        warnings.append(f"Description is too short ({len(description)} chars). Recommended: 70-155 chars.")
+                        score -= 5
+                    elif len(description) > 155:
+                        warnings.append(f"Description is too long ({len(description)} chars). Recommended: < 155 chars.")
+                        score -= 5
+                        
+                    # Canonical Check
+                    if not canonical:
+                        warnings.append("Missing Canonical URL.")
+                        score -= 10
+                        
+                    # OG Check
+                    if not og_tags:
+                        warnings.append("Missing Open Graph tags.")
+                        score -= 10
+                        
+                    if score < 0: score = 0
+                    
+                    result = models.MetaTagsResult(
+                        session_id=session_id,
+                        url=url,
+                        title=title,
+                        description=description,
+                        keywords=keywords,
+                        canonical=canonical,
+                        og_tags=json.dumps(og_tags),
+                        twitter_tags=json.dumps(twitter_tags),
+                        schema_tags=json.dumps(schema_tags),
+                        missing_tags=json.dumps(missing_tags),
+                        warnings=json.dumps(warnings),
+                        keyword_consistency=json.dumps(keyword_consistency),
+                        score=score
+                    )
+                    db.add(result)
+                    db.commit()
+                    
+                except Exception as e:
+                    print(f"Meta audit failed for {url}: {e}")
+                
+                completed_count += 1
+                session.completed = completed_count
+                db.commit()
+
+            session.status = "completed"
+            session.completed_at = datetime.utcnow()
+            db.commit()
+    except Exception as e:
+        print(f"Meta tags audit failed: {e}")
+        session.status = "error"
+        db.commit()
+    finally:
+        db.close()
+
+async def audit_sitemap_logic(url: str, session_id: str):
+    """Background task for Sitemap audit"""
+    db = database.SessionLocal()
+    try:
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if not session: return
+
+        # Fetch sitemap
+        import xml.etree.ElementTree as ET
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(url, timeout=30)
+                # Remove namespaces for easier parsing in simple logic
+                xml_content = re.sub(r' xmlns="[^"]+"', '', resp.text, count=1)
+                root = ET.fromstring(xml_content)
+                
+                # Count URLs
+                # Handle standard sitemap (urlset/url) or sitemap index (sitemapindex/sitemap)
+                tag = root.tag
+                if 'sitemapindex' in tag:
+                    is_index = True
+                    children = [child.findtext('loc') for child in root.findall('sitemap')]
+                    count = len(children)
+                else:
+                    is_index = False
+                    urls = root.findall('url')
+                    count = len(urls)
+                    children = []
+                
+                # Check robots.txt (simple assumptions)
+                domain_match = re.search(r'(https?://[^/]+)', url)
+                domain = domain_match.group(1) if domain_match else ""
+                robots_url = f"{domain}/robots.txt"
+                
+                robots_status = "unknown"
+                if domain:
+                    try:
+                        robots_resp = await client.get(robots_url, timeout=10)
+                        if robots_resp.status_code == 200:
+                             robots_status = "found" if "Sitemap:" in robots_resp.text else "found_no_link"
+                        else:
+                             robots_status = "missing"
+                    except:
+                        robots_status = "error"
+                
+                result = models.SitemapResult(
+                    session_id=session_id,
+                    url=url,
+                    is_index=is_index,
+                    url_count=count,
+                    child_sitemaps=json.dumps(children) if children else "[]",
+                    robots_status=robots_status,
+                    load_time_ms=int(resp.elapsed.total_seconds() * 1000),
+                    score=90 if robots_status == "found" else 70 
+                )
+                db.add(result)
+                session.completed = 1
+                session.status = "completed"
+                db.commit()
+                
+            except Exception as e:
+                print(f"Sitemap fetch error: {e}")
+                session.status = "error"
+                db.commit()
+                
+    except Exception as e:
+        print(f"Sitemap task error: {e}")
+        session.status = "error"
+        db.commit()
+    finally:
+        db.close()
+
+
+async def audit_accessibility_task(urls: List[str], session_id: str):
+    """Background task for Accessibility audit (Threaded/Sync wrapper)"""
+    print(f"DEBUG: Starting accessibility audit task for {session_id}")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _audit_accessibility_sync, urls, session_id)
+
+def _audit_accessibility_sync(urls: List[str], session_id: str):
+    print(f"DEBUG: Accessibility sync thread started for {session_id}")
+    from playwright.sync_api import sync_playwright
+    import requests # Use requests for simple sync fetch, or httpx.Client
+    import httpx
+    
+    db = database.SessionLocal()
+    try:
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if not session: return
+        
+        # Fetch axe-core synchronously
+        axe_source = ""
+        try:
+            # Using httpx sync client since it is already installed
+            with httpx.Client() as client:
+                resp = client.get("https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.7.0/axe.min.js", timeout=10)
+                axe_source = resp.text
+        except Exception as e:
+            print(f"Failed to fetch axe-core: {e}")
+            session.status = "error"
+            db.commit()
+            return
+            
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            
+            completed_count = 0
+            for url in urls:
+                # Refresh session status
+                db.expire_all()
+                session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+                if not session or session.status == "stopped": 
+                    break
+                
+                try:
+                    page = browser.new_page()
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                        
+                        # Inject and run axe
+                        page.evaluate(axe_source)
+                        results = page.evaluate("axe.run()")
+                        
+                        violations = results.get('violations', [])
+                        
+                        # Calculate Score
+                        critical = sum(1 for v in violations if v.get('impact') == 'critical')
+                        serious = sum(1 for v in violations if v.get('impact') == 'serious')
+                        moderate = sum(1 for v in violations if v.get('impact') == 'moderate')
+                        minor = sum(1 for v in violations if v.get('impact') == 'minor')
+                        
+                        score = 100 - (critical * 10 + serious * 5 + moderate * 2)
+                        if score < 0: score = 0
+                        
+                        res_entry = models.AccessibilityAuditResult(
+                            session_id=session_id,
+                            url=url,
+                            score=score,
+                            violations_count=len(violations),
+                            critical_count=critical,
+                            serious_count=serious,
+                            moderate_count=moderate,
+                            minor_count=minor,
+                            report_json=json.dumps(violations) 
+                        )
+                        db.add(res_entry)
+                        db.commit()
+                        
+                    finally:
+                        page.close()
+                    
+                except Exception as e:
+                    print(f"A11y error {url}: {e}")
+                    # Log error entry?
+                    # For now just continue
+
+                completed_count += 1
+                session.completed = completed_count
+                db.commit()
+
+            session.status = "completed"
+            session.completed_at = datetime.utcnow()
+            db.commit()
+            browser.close()
+            
+    except Exception as e:
+        print(f"Accessibility Audit Fatal Error: {e}")
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if session:
+            session.status = "error"
+            db.commit()
+    finally:
+        db.close()
+
+async def audit_phone_numbers(urls: List[str], target_numbers: List[str], options: List[str], 
+                               session_id: str, user_id: int, db: Session):
+    """Audit phone numbers - search for specific target numbers on URLs"""
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            
+            for url in urls:
+                try:
+                    # Check if session was stopped
+                    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+                    if session and session.status == "stopped":
+                        break
+                    
+                    print(f"[PHONE AUDIT] Checking {url}")
+                    
+                    page = await browser.new_page()
+                    await page.goto(url, wait_until="networkidle", timeout=30000)
+                    
+                    # Get page content
+                    content = await page.content()
+                    text_content = await page.inner_text('body')
+                    
+                    # Search for each target number
+                    numbers_found = []
+                    issues = []
+                    
+                    for target_number in target_numbers:
+                        # Clean the target number for searching (remove spaces, dashes, etc.)
+                        clean_target = ''.join(filter(str.isdigit, target_number))
+                        
+                        # Count occurrences in text content
+                        count = text_content.count(target_number)
+                        
+                        # Also search for variations (with/without formatting)
+                        if count == 0:
+                            # Try without formatting
+                            count = text_content.count(clean_target)
+                        
+                        if count > 0:
+                            numbers_found.append({
+                                'number': target_number,
+                                'count': count
+                            })
+                            print(f"  Found: {target_number} ({count} times)")
+                        else:
+                            print(f"  Not found: {target_number}")
+                    
+                    # Check for issues based on options
+                    if 'validate_formats' in options:
+                        # Check if numbers are in valid formats
+                        for num_data in numbers_found:
+                            num = num_data['number']
+                            if not any(char in num for char in ['-', ' ', '(', ')']):
+                                issues.append(f"Number {num} has no formatting")
+                    
+                    if 'check_links' in options:
+                        # Check if numbers are clickable links
+                        for num_data in numbers_found:
+                            num = num_data['number']
+                            clean_num = ''.join(filter(str.isdigit, num))
+                            tel_link = f'tel:{clean_num}'
+                            if tel_link not in content and f'tel:+{clean_num}' not in content:
+                                issues.append(f"Click-to-call link not found for {num}")
+                    
+                    if 'check_schema' in options:
+                        # Check for schema markup
+                        if 'telephone' not in content.lower():
+                            issues.append("No telephone schema markup found")
+                    
+                    # Determine status
+                    if len(numbers_found) == 0:
+                        status = "Not Found"
+                    elif len(numbers_found) == len(target_numbers):
+                        status = "All Found"
+                    else:
+                        status = "Partial"
+                    
+                    # Create result record
+                    result = models.PhoneAuditResult(
+                        session_id=session_id,
+                        url=url,
+                        phone_count=len(numbers_found),
+                        phone_numbers=json.dumps(numbers_found),
+                        formats_detected=json.dumps([]),  # Empty for now, can be enhanced later
+                        issues=json.dumps(issues)
+                    )
+                    db.add(result)
+                    
+                    # Update session progress
+                    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+                    if session:
+                        session.completed += 1
+                    db.commit()
+                    
+                    await page.close()
+                    
+                except Exception as e:
+                    print(f"Error auditing {url}: {e}")
+                    # Save error result
+                    result = models.PhoneAuditResult(
+                        session_id=session_id,
+                        url=url,
+                        phone_count=0,
+                        phone_numbers=json.dumps([]),
+                        formats_detected=json.dumps([]),
+                        issues=json.dumps([f"Error: {str(e)}"])
+                    )
+                    db.add(result)
+                    db.commit()
+            
+            await browser.close()
+            
+            # Mark session as completed
+            session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+            if session:
+                session.status = "completed"
+                session.completed_at = datetime.utcnow()
+                db.commit()
+            
+            print(f"PHONE AUDIT SESSION {session_id} COMPLETED")
+            
+    except Exception as e:
+        print(f"Phone Audit Fatal Error: {e}")
+        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+        if session:
+            session.status = "error"
+            db.commit()
+
 def phone_audit_task(urls: List[str], target_numbers: List[str], options: List[str], 
                      session_id: str, user_id: int, session_name: str):
     """Background task for phone audit"""
@@ -1198,6 +1779,16 @@ async def register_page(request: Request, db: Session = Depends(auth.get_db)):
         "google_client_id": settings.google_client_id
     })
 
+@app.get("/reset-password")
+async def reset_password_page(request: Request):
+    """Reset Password Page"""
+    return templates.TemplateResponse("reset-password.html", {"request": request})
+
+@app.get("/forgot-password")
+async def forgot_password_redirect():
+    """Redirect legacy forgot password link to reset password page"""
+    return RedirectResponse(url="/reset-password")
+
 @app.get("/platform/history")
 async def history_page(request: Request, db: Session = Depends(auth.get_db)):
     """History page - requires authentication"""
@@ -1243,10 +1834,21 @@ async def profile_page(request: Request, db: Session = Depends(auth.get_db)):
     user = await get_current_user_from_cookie(request, db)
     if not user:
         return RedirectResponse("/login")
-        
+    
+    # Fetch user stats
+    total_sessions = db.query(models.AuditSession).filter(models.AuditSession.user_id == user.id).count()
+    completed_audits = db.query(models.AuditSession).filter(models.AuditSession.user_id == user.id, models.AuditSession.status == "completed").count()
+
+    stats = {
+        "total_sessions": total_sessions,
+        "completed_audits": completed_audits,
+        "success_rate": int((completed_audits / total_sessions * 100)) if total_sessions > 0 else 0
+    }
+
     return templates.TemplateResponse("profile.html", {
         "request": request,
-        "user": user
+        "user": user,
+        "stats": stats
     })
         
 @app.get("/responsive")
@@ -2215,32 +2817,29 @@ async def view_results(session_type: str, session_id: str, request: Request, db:
             "results": results_data
         })
     elif session_type == "phone":
-        # Get phone audit results
-        phone_results = db.query(models.PhoneAuditResult).filter_by(session_id=session_id).all()
-        
-        # Convert results to dict format
-        results_data = []
-        for result in phone_results:
-            results_data.append({
-                "url": result.url,
-                "phone_count": result.phone_count,
-                "phone_numbers": result.phone_numbers,
-                "formats_detected": result.formats_detected,
-                "issues": result.issues
-            })
-        
-        return templates.TemplateResponse("phone-results.html", {
-            "request": request,
-            "user": user,
-            "session": session,
-            "session_id": session_id,
-            "session_type": "phone",
-            "results": results_data
-        })
+        return RedirectResponse(f"/platform/phone-audit?status=completed&session_id={session_id}")
+    elif session_type == "performance":
+        return RedirectResponse(f"/platform/performance?status=completed&session_id={session_id}")
     elif session_type == "accessibility":
-        return RedirectResponse(f"/accessibility-results/{session_id}")
+        return RedirectResponse(f"/platform/accessibility?status=completed&session_id={session_id}")
+    elif session_type == "meta-tags":
+        return RedirectResponse(f"/scan/meta-tags?status=completed&session_id={session_id}")
+    elif session_type == "sitemap":
+        return RedirectResponse(f"/scan/xml-sitemaps?status=completed&session_id={session_id}")
     else:
         raise HTTPException(status_code=400, detail="Invalid session type")
+
+@app.get("/progress/performance/{session_id}")
+async def performance_progress(session_id: str, db: Session = Depends(auth.get_db)):
+    """Get progress of a performance audit session"""
+    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+    if not session:
+        return {"completed": 0, "total": 0, "status": "not_found"}
+    return {
+        "completed": session.completed,
+        "total": session.total_expected,
+        "status": session.status
+    }
 
 @app.get("/h1-results/{session_id}")
 async def get_h1_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
@@ -2560,353 +3159,12 @@ def process_image_diff(base_path, compare_path, session_folder, session_id, base
 
 # ========== ACCESSIBILITY AUDIT FUNCTIONS ==========
 
-async def audit_accessibility_logic(urls: List[str], session_id: str, db: Session):
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            
-            for url in urls:
-                try:
-                    # Check if stopped
-                    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-                    if session and session.status == "stopped":
-                        break
 
-                    context = await browser.new_context(bypass_csp=True)
-                    page = await context.new_page()
-                    
-                    await page.goto(url, wait_until="networkidle", timeout=60000)
-                    
-                    # Inject Axe-core
-                    await page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.7.2/axe.min.js")
-                    
-                    # Run Axe
-                    results = await page.evaluate("() => axe.run()")
-                    
-                    # Process Results
-                    violations = results.get("violations", [])
-                    score = 100 - (len(violations) * 5)
-                    if score < 0: score = 0
-                    
-                    critical = 0
-                    serious = 0
-                    moderate = 0
-                    minor = 0
-                    
-                    for v in violations:
-                        impact = v.get("impact", "minor")
-                        if impact == "critical": critical += 1
-                        elif impact == "serious": serious += 1
-                        elif impact == "moderate": moderate += 1
-                        else: minor += 1
-                    
-                    audit_result = models.AccessibilityAuditResult(
-                        session_id=session_id,
-                        url=url,
-                        score=score,
-                        violations_count=len(violations),
-                        critical_count=critical,
-                        serious_count=serious,
-                        moderate_count=moderate,
-                        minor_count=minor,
-                        report_json=json.dumps(violations)
-                    )
-                    db.add(audit_result)
-                    
-                    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-                    session.completed += 1
-                    db.commit()
-                    
-                    await context.close()
-                    
-                except Exception as e:
-                    print(f"Accessibility Error {url}: {e}")
-                    # Log error result?
-            
-            await browser.close()
-            
-            session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-            if session:
-                session.status = "completed"
-                session.completed_at = datetime.utcnow()
-                db.commit()
-
-    except Exception as e:
-        print(f"Accessibility Audit Fatal Error: {e}")
-        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-        if session:
-            session.status = "error"
-            db.commit()
-
-
-# ========== PERFORMANCE AUDIT FUNCTIONS ==========
-
-async def audit_performance_logic(urls: List[str], session_id: str, strategy: str = "desktop"):
-    # Create a new database session for this background task
-    db = database.SessionLocal()
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            
-            for url in urls:
-                try:
-                    if strategy == "mobile":
-                        # Use iPhone 12 emulation
-                        device = p.devices['iPhone 12']
-                        context = await browser.new_context(**device)
-                    else:
-                        context = await browser.new_context()
-
-                    page = await context.new_page()
-                    
-                    # Navigate and measure
-                    response = await page.goto(url, wait_until="load", timeout=45000)
-                    
-                    # Get Timing Metrics via Navigation API
-                    timings = await page.evaluate("() => JSON.stringify(window.performance.timing)")
-                    timings = json.loads(timings)
-                    
-                    # Calculate key metrics
-                    nav_start = timings['navigationStart']
-                    ttfb = max(0, timings['responseStart'] - nav_start)
-                    dom_load = max(0, timings['domContentLoadedEventEnd'] - nav_start)
-                    page_load = max(0, timings['loadEventEnd'] - nav_start)
-                    
-                    # First Contentful Paint (approximate via paint timing api if available)
-                    fcp = 0
-                    try:
-                        fcp_raw = await page.evaluate("""() => {
-                            const paint = performance.getEntriesByType('paint').find(e => e.name === 'first-contentful-paint');
-                            return paint ? paint.startTime : 0;
-                        }""")
-                        fcp = int(fcp_raw)
-                    except:
-                        pass
-                    
-                    # Resource counting
-                    resource_count = await page.evaluate("performance.getEntriesByType('resource').length")
-                    
-                    # Simple scoring logic
-                    score = 100
-                    if page_load > 3000: score -= 10
-                    if page_load > 5000: score -= 20
-                    if ttfb > 500: score -= 10
-                    if score < 0: score = 0
-                    
-                    result = models.PerformanceAuditResult(
-                        session_id=session_id,
-                        url=url,
-                        device_preset="Mobile" if strategy == "mobile" else "Desktop",
-                        ttfb=ttfb,
-                        fcp=fcp,
-                        dom_load=dom_load,
-                        page_load=page_load,
-                        resource_count=resource_count,
-                        score=score
-                    )
-                    db.add(result)
-                    
-                    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-                    session.completed += 1
-                    db.commit()
-                    
-                    await context.close()
-                    
-                except Exception as e:
-                    print(f"Perf Error {url}: {e}")
-            
-            await browser.close()
-            
-            session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-            if session:
-                session.status = "completed"
-                session.completed_at = datetime.utcnow()
-                db.commit()
-
-    except Exception as e:
-        print(f"Performance Audit Fatal Error: {e}")
-        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-        if session:
-            session.status = "error"
-            db.commit()
-    finally:
-        db.close()
 
 
 # ========== META TAGS AUDIT FUNCTIONS ==========
 
-async def audit_meta_tags_logic(urls: List[str], session_id: str):
-    db = database.SessionLocal()
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            
-            for url in urls:
-                try:
-                    # Check if stopped
-                    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-                    if session and session.status == "stopped":
-                        break
 
-                    context = await browser.new_context(user_agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
-                    page = await context.new_page()
-                    
-                    try:
-                        await page.goto(url, wait_until="networkidle", timeout=60000)
-                    except:
-                        pass # Continue even if timeout, DOM might be ready
-                    
-                    # --- EXTRACTION ---
-                    
-                    # Standard Tags (Safe JS Evaluation)
-                    # We use evaluate to avoid Playwright waiting for elements that might not exist
-                    metadata = await page.evaluate("""() => {
-                        return {
-                            title: document.title || '',
-                            description: document.querySelector('meta[name="description"]')?.getAttribute('content') || '',
-                            keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content') || '',
-                            canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href') || ''
-                        }
-                    }""")
-                    
-                    title = metadata['title']
-                    description = metadata['description']
-                    keywords = metadata['keywords']
-                    canonical = metadata['canonical']
-                    
-                    # OG Tags
-                    og_tags = await page.evaluate("""() => {
-                        const tags = {};
-                        document.querySelectorAll('meta[property^="og:"]').forEach(m => {
-                            tags[m.getAttribute('property')] = m.getAttribute('content');
-                        });
-                        return tags;
-                    }""")
-                    
-                    # Twitter Tags
-                    twitter_tags = await page.evaluate("""() => {
-                        const tags = {};
-                        document.querySelectorAll('meta[name^="twitter:"]').forEach(m => {
-                            tags[m.getAttribute('name')] = m.getAttribute('content');
-                        });
-                        return tags;
-                    }""")
-                    
-                    # Schema.org (JSON-LD)
-                    schema_tags = await page.evaluate("""() => {
-                        const schemas = [];
-                        document.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
-                            try {
-                                schemas.push(JSON.parse(s.innerText));
-                            } catch(e) {}
-                        });
-                        return schemas;
-                    }""")
-                    
-                    # Keyword Consistency (Simple Tokenizer)
-                    body_text = await page.evaluate("document.body.innerText")
-                    # Clean and tokenize body
-                    import re
-                    from collections import Counter
-                    
-                    def tokenize(text):
-                        return [w.lower() for w in re.findall(r'[a-zA-Z]{3,}', text)]
-                    
-                    body_tokens = tokenize(body_text)
-                    body_counts = Counter(body_tokens)
-                    
-                    target_keywords = tokenize(title + " " + keywords + " " + description)
-                    # Filter uniques
-                    target_keywords = list(set(target_keywords))
-                    
-                    keyword_consistency = {}
-                    for kw in target_keywords:
-                        keyword_consistency[kw] = body_counts.get(kw, 0)
-                        
-                    
-                    # --- VALIDATION (Google Guidelines) ---
-                    warnings = []
-                    missing_tags = []
-                    score = 100
-                    
-                    # Title Length (30-60 chars)
-                    if not title:
-                        missing_tags.append("Title")
-                        score -= 20
-                    else:
-                        if len(title) < 30:
-                            warnings.append(f"Title is too short ({len(title)} chars). Recommended: 30-60 chars.")
-                            score -= 5
-                        elif len(title) > 60:
-                            warnings.append(f"Title is too long ({len(title)} chars). Google may truncate it. Recommended: < 60 chars.")
-                            score -= 5
-                            
-                    # Description Length (70-155 chars)
-                    if not description:
-                        missing_tags.append("Description")
-                        score -= 20
-                    else:
-                        if len(description) < 70:
-                            warnings.append(f"Description is too short ({len(description)} chars). Recommended: 70-155 chars.")
-                            score -= 5
-                        elif len(description) > 155:
-                            warnings.append(f"Description is too long ({len(description)} chars). Recommended: < 155 chars.")
-                            score -= 5
-                            
-                    # Canonical Check
-                    if not canonical:
-                        warnings.append("Missing Canonical URL. This helps prevent duplicate content issues.")
-                        score -= 10
-                    
-                    # OG Check
-                    if not og_tags.get("og:title") or not og_tags.get("og:image"):
-                        warnings.append("Missing key Open Graph tags (og:title, og:image). Link previews will be broken.")
-                        score -= 10
-                        
-                    if score < 0: score = 0
-                    
-                    # Save Result
-                    result = models.MetaTagsResult(
-                        session_id=session_id,
-                        url=url,
-                        title=title,
-                        description=description,
-                        keywords=keywords,
-                        canonical=canonical,
-                        og_tags=json.dumps(og_tags),
-                        twitter_tags=json.dumps(twitter_tags),
-                        schema_tags=json.dumps(schema_tags),
-                        missing_tags=json.dumps(missing_tags),
-                        warnings=json.dumps(warnings),
-                        keyword_consistency=json.dumps(keyword_consistency),
-                        score=score
-                    )
-                    db.add(result)
-                    
-                    session.completed += 1
-                    db.commit()
-                    
-                    await context.close()
-                    
-                except Exception as e:
-                    print(f"Meta Scan Error {url}: {e}")
-            
-            await browser.close()
-            
-            session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-            if session:
-                session.status = "completed"
-                session.completed_at = datetime.utcnow()
-                db.commit()
-
-    except Exception as e:
-        print(f"Meta Audit Fatal Error: {e}")
-        session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
-        if session:
-            session.status = "error"
-            db.commit()
-    finally:
-        db.close()
 
 # ========== XML SITEMAP AUDIT FUNCTIONS ==========
 
@@ -3304,8 +3562,20 @@ async def visual_test_view(request: Request, user: models.User = Depends(require
     return templates.TemplateResponse("visual_regression.html", {"request": request, "user": user})
 
 @app.get("/platform/profile", response_class=HTMLResponse)
-async def profile_view(request: Request, user: models.User = Depends(require_auth)):
-    return templates.TemplateResponse("profile.html", {"request": request, "user": user})
+async def profile_view(request: Request, user: models.User = Depends(require_auth), db: Session = Depends(auth.get_db)):
+    # Fetch simple stats for profile
+    total_sessions = db.query(models.AuditSession).filter(models.AuditSession.user_id == user.id).count()
+    completed_audits = db.query(models.AuditSession).filter(models.AuditSession.user_id == user.id, models.AuditSession.status == "completed").count()
+    
+    return templates.TemplateResponse("profile.html", {
+        "request": request, 
+        "user": user,
+        "stats": {
+            "total_sessions": total_sessions,
+            "completed_audits": completed_audits,
+            "success_rate": int((completed_audits / total_sessions * 100)) if total_sessions > 0 else 0
+        }
+    })
 
 @app.get("/profile")
 async def profile_redirect():
@@ -3385,36 +3655,62 @@ async def trigger_visual_test(
         "message": "Visual audit started"
     })
 
-@app.post("/api/performance-test")
-async def trigger_performance_test(
+@app.post("/upload/performance")
+async def upload_performance(
+    request: Request,
     background_tasks: BackgroundTasks,
-    urls: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    manual_urls: Optional[str] = Form(None),
     strategy: str = Form("desktop"),
-    user: models.User = Depends(require_auth),
+    session_name: str = Form("My Performance Audit"),
     db: Session = Depends(auth.get_db)
 ):
-    url_list = [u.strip() for u in urls.splitlines() if u.strip()]
-    session_id = f"perf_{uuid.uuid4().hex[:8]}"
+    user = await get_current_user_from_cookie(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    urls = []
+    
+    # Process File
+    if file:
+        content = await file.read()
+        text_content = content.decode("utf-8", errors="ignore")
+        urls.extend([line.strip() for line in text_content.splitlines() if line.strip().startswith(("http://", "https://"))])
+        
+    # Process Manual Entry
+    if manual_urls:
+         urls.extend([line.strip() for line in manual_urls.splitlines() if line.strip().startswith(("http://", "https://"))])
+    
+    # Deduplicate
+    urls = list(dict.fromkeys(urls))
+
+    if not urls:
+        return JSONResponse({"error": "No valid URLs found"}, status_code=400)
+
+    session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     new_session = models.AuditSession(
         session_id=session_id,
         user_id=user.id,
         session_type="performance",
-        name=f"Perf ({strategy.capitalize()}): {len(url_list)} URLs",
-        urls=json.dumps(url_list),
-        browsers=json.dumps(["Chrome"]),
+        name=session_name,
+        urls=json.dumps(urls),
+        browsers=json.dumps([strategy]),
         resolutions=json.dumps(["Default"]),
-        total_expected=len(url_list)
+        total_expected=len(urls)
     )
     db.add(new_session)
     db.commit()
     
-    background_tasks.add_task(audit_performance_logic, url_list, session_id, strategy)
+    background_tasks.add_task(audit_performance_task, urls, session_id, strategy)
     
+    # Store task reference
+    running_tasks[session_id] = "performance"
+
     return JSONResponse({
-        "status": "started",
-        "session_id": session_id,
-        "message": "Performance audit started"
+        "session": session_id,
+        "total_expected": len(urls),
+        "type": "performance"
     })
 
 @app.get("/api/results/{session_id}")
@@ -3471,6 +3767,70 @@ async def get_any_results(session_id: str, request: Request, db: Session = Depen
             "violations": json.loads(r.report_json) if r.report_json else []
         } for r in results]
     return []
+
+@app.get("/api/results/meta-tags/{session_id}")
+async def get_meta_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
+    user = await get_current_user_from_cookie(request, db)
+    if not user: raise HTTPException(status_code=401)
+    
+    results = db.query(models.MetaTagsResult).filter_by(session_id=session_id).all()
+    # If no results and session exists, we might return empty list, handled by frontend
+    
+    return {"results": [{
+        "url": r.url,
+        "title": r.title,
+        "description": r.description,
+        "keywords": r.keywords,
+        "canonical": r.canonical,
+        "og_tags": json.loads(r.og_tags) if r.og_tags else {},
+        "twitter_tags": json.loads(r.twitter_tags) if r.twitter_tags else {},
+        "schema_tags": json.loads(r.schema_tags) if r.schema_tags else [],
+        "missing_tags": json.loads(r.missing_tags) if r.missing_tags else [],
+        "warnings": json.loads(r.warnings) if r.warnings else [],
+        "keyword_consistency": json.loads(r.keyword_consistency) if r.keyword_consistency else {},
+        "score": r.score
+    } for r in results]}
+
+@app.get("/api/results/sitemap/{session_id}")
+async def get_sitemap_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
+    user = await get_current_user_from_cookie(request, db)
+    if not user: raise HTTPException(status_code=401)
+    
+    r = db.query(models.SitemapResult).filter_by(session_id=session_id).first()
+    if not r: return {"results": {}}
+    
+    return {"results": {
+        "url": r.url,
+        "is_index": r.is_index,
+        "url_count": r.url_count,
+        "child_sitemaps": json.loads(r.child_sitemaps) if r.child_sitemaps else [],
+        "robots_status": r.robots_status,
+        "load_time_ms": r.load_time_ms,
+        "score": r.score,
+        "errors": json.loads(r.errors) if r.errors else [],
+        "warnings": json.loads(r.warnings) if r.warnings else [],
+        "reachability_sample": json.loads(r.reachability_sample) if r.reachability_sample else {}
+    }}
+
+@app.get("/api/results/h1/{session_id}")
+async def get_h1_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
+    user = await get_current_user_from_cookie(request, db)
+    if not user: raise HTTPException(status_code=401)
+    
+    results = db.query(models.H1AuditResult).filter_by(session_id=session_id).all()
+    return [{"url": r.url, "h1_count": r.h1_count, "h1_texts": json.loads(r.h1_texts) if r.h1_texts else [], "issues": json.loads(r.issues) if r.issues else []} for r in results]
+
+@app.get("/progress/h1/{session_id}")
+async def h1_progress(session_id: str, db: Session = Depends(auth.get_db)):
+    """Get progress of a H1 session"""
+    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+    if not session:
+        return {"completed": 0, "total": 0, "status": "not_found"}
+    return {
+        "completed": session.completed,
+        "total": session.total_expected,
+        "status": session.status
+    }
 
 @app.get("/session-config/static/{session_id}")
 async def get_static_session_config(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
@@ -3607,12 +3967,13 @@ async def test_code_version():
 async def accessibility_test_view(request: Request, user: models.User = Depends(require_auth)):
     return templates.TemplateResponse("accessibility-audit.html", {"request": request, "user": user})
 
-@app.post("/api/accessibility-test")
-async def trigger_accessibility_test(
+@app.post("/upload/accessibility")
+async def upload_accessibility(
     request: Request,
     background_tasks: BackgroundTasks,
     urls: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
+    session_name: str = Form("My Accessibility Audit"),
     user: models.User = Depends(require_auth),
     db: Session = Depends(auth.get_db)
 ):
@@ -3632,7 +3993,7 @@ async def trigger_accessibility_test(
     url_list = list(dict.fromkeys(url_list))
 
     if not url_list:
-        return RedirectResponse(url="/platform/accessibility?error=no_urls", status_code=303)
+        return JSONResponse({"error": "No valid URLs found"}, status_code=400)
 
     session_id = f"a11y_{uuid.uuid4().hex[:8]}"
     
@@ -3640,7 +4001,7 @@ async def trigger_accessibility_test(
         session_id=session_id,
         user_id=user.id,
         session_type="accessibility",
-        name=f"A11y: {len(url_list)} URLs",
+        name=session_name,
         urls=json.dumps(url_list),
         browsers=json.dumps(["Chrome"]),
         resolutions=json.dumps(["Default"]),
@@ -3649,34 +4010,59 @@ async def trigger_accessibility_test(
     db.add(new_session)
     db.commit()
     
-    background_tasks.add_task(audit_accessibility_logic, url_list, session_id, db)
+    background_tasks.add_task(audit_accessibility_task, url_list, session_id)
     
-    if request.headers.get("accept") == "application/json":
-        return JSONResponse({
-            "status": "started",
-            "session_id": session_id,
-            "message": "Audit started"
-        })
+    # Store task reference
+    running_tasks[session_id] = "accessibility"
+    
+    return JSONResponse({
+        "session": session_id,
+        "total_expected": len(url_list),
+        "type": "accessibility"
+    })
 
-    return RedirectResponse(url="/platform/accessibility?status=started", status_code=303)
+@app.get("/progress/accessibility/{session_id}")
+async def accessibility_progress(session_id: str, db: Session = Depends(auth.get_db)):
+    """Get progress of an accessibility session"""
+    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+    if not session:
+        return {"completed": 0, "total": 0, "status": "not_found"}
+    return {
+        "completed": session.completed,
+        "total": session.total_expected,
+        "status": session.status
+    }
 
 
 # ========== META TAGS ROUTES ==========
 
-@app.post("/api/scan/meta-tags")
-async def trigger_meta_scan(
+@app.post("/upload/meta-tags")
+async def upload_meta_tags(
     request: Request,
     background_tasks: BackgroundTasks,
-    urls: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    manual_urls: Optional[str] = Form(None),
+    session_name: str = Form("My Meta Tags Scan"),
     user: models.User = Depends(require_auth),
     db: Session = Depends(auth.get_db)
 ):
-    url_list = [u.strip() for u in urls.splitlines() if u.strip()]
+    urls = []
     
-    if not url_list:
-        if request.headers.get("accept") == "application/json":
-            return JSONResponse({"status": "error", "message": "No URLs provided"}, status_code=400)
-        return RedirectResponse(url="/scan/meta-tags?error=no_urls", status_code=303)
+    # Process File
+    if file:
+        content = await file.read()
+        text_content = content.decode("utf-8", errors="ignore")
+        urls.extend([line.strip() for line in text_content.splitlines() if line.strip().startswith(("http://", "https://"))])
+        
+    # Process Manual Entry
+    if manual_urls:
+         urls.extend([line.strip() for line in manual_urls.splitlines() if line.strip().startswith(("http://", "https://"))])
+    
+    # Deduplicate
+    urls = list(dict.fromkeys(urls))
+
+    if not urls:
+        return JSONResponse({"error": "No valid URLs found"}, status_code=400)
 
     session_id = f"meta_{uuid.uuid4().hex[:8]}"
     
@@ -3684,25 +4070,37 @@ async def trigger_meta_scan(
         session_id=session_id,
         user_id=user.id,
         session_type="meta-tags",
-        name=f"Meta: {len(url_list)} URLs",
-        urls=json.dumps(url_list),
+        name=session_name,
+        urls=json.dumps(urls),
         browsers=json.dumps(["Chrome"]),
         resolutions=json.dumps(["Default"]),
-        total_expected=len(url_list)
+        total_expected=len(urls)
     )
     db.add(new_session)
     db.commit()
     
-    background_tasks.add_task(audit_meta_tags_logic, url_list, session_id)
+    background_tasks.add_task(audit_meta_tags_logic, urls, session_id)
     
-    if request.headers.get("accept") == "application/json":
-        return JSONResponse({
-            "status": "started", 
-            "session_id": session_id,
-            "message": "Meta Tags Scan started"
-        })
+    # Store task reference
+    running_tasks[session_id] = "meta-tags"
+    
+    return JSONResponse({
+        "session": session_id,
+        "total_expected": len(urls),
+        "type": "meta-tags"
+    })
 
-    return RedirectResponse(url=f"/scan/meta-tags?status=started&session_id={session_id}", status_code=303)
+@app.get("/progress/meta-tags/{session_id}")
+async def meta_tags_progress(session_id: str, db: Session = Depends(auth.get_db)):
+    """Get progress of a meta tags session"""
+    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+    if not session:
+        return {"completed": 0, "total": 0, "status": "not_found"}
+    return {
+        "completed": session.completed,
+        "total": session.total_expected,
+        "status": session.status
+    }
 
 @app.get("/api/results/meta-tags/{session_id}")
 async def get_meta_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
@@ -3747,17 +4145,18 @@ async def meta_tags_page(request: Request, db: Session = Depends(auth.get_db)):
 
 # ========== XML SITEMAP ROUTES ==========
 
-@app.post("/api/scan/sitemap")
-async def trigger_sitemap_scan(
+@app.post("/upload/sitemap")
+async def upload_sitemap(
     request: Request,
     background_tasks: BackgroundTasks,
     url: str = Form(...),
+    session_name: str = Form("My Sitemap Audit"),
     user: models.User = Depends(require_auth),
     db: Session = Depends(auth.get_db)
 ):
     clean_url = url.strip()
     if not clean_url:
-        return RedirectResponse(url="/scan/xml-sitemaps?error=no_url", status_code=303)
+        return JSONResponse({"error": "No URL provided"}, status_code=400)
 
     session_id = f"sitemap_{uuid.uuid4().hex[:8]}"
     
@@ -3765,7 +4164,7 @@ async def trigger_sitemap_scan(
         session_id=session_id,
         user_id=user.id,
         session_type="sitemap",
-        name=f"Sitemap: {clean_url}",
+        name=session_name,
         urls=json.dumps([clean_url]),
         browsers=json.dumps(["None"]),
         resolutions=json.dumps(["Default"]),
@@ -3776,7 +4175,27 @@ async def trigger_sitemap_scan(
     
     background_tasks.add_task(audit_sitemap_logic, clean_url, session_id)
     
-    return RedirectResponse(url=f"/scan/xml-sitemaps?status=started&session_id={session_id}", status_code=303)
+    # Store task reference
+    running_tasks[session_id] = "sitemap"
+
+    return JSONResponse({
+        "session": session_id,
+        "total_expected": 1,
+        "type": "sitemap"
+    })
+
+@app.get("/progress/sitemap/{session_id}")
+async def sitemap_progress(session_id: str, db: Session = Depends(auth.get_db)):
+    """Get progress of a sitemap session"""
+    session = db.query(models.AuditSession).filter_by(session_id=session_id).first()
+    if not session:
+        return {"completed": 0, "total": 0, "status": "not_found"}
+    return {
+        "completed": session.completed,
+        "total": session.total_expected,
+        "status": session.status
+    }
+
 
 @app.get("/api/results/sitemap/{session_id}")
 async def get_sitemap_results(session_id: str, request: Request, db: Session = Depends(auth.get_db)):
@@ -3838,6 +4257,147 @@ async def get_accessibility_results(session_id: str, request: Request, db: Sessi
         "session": session,
         "results": results
     })
+
+
+# ========== SESSION CONFIG API ==========
+
+@app.get("/api/session/{session_id}/config")
+async def get_session_config(
+    session_id: str,
+    request: Request,
+    db: Session = Depends(auth.get_db)
+):
+    """Get session configuration for restart functionality"""
+    user = await get_current_user_from_cookie(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    session = db.query(models.AuditSession).filter_by(
+        session_id=session_id,
+        user_id=user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return {
+        "session_id": session.session_id,
+        "session_type": session.session_type,
+        "name": session.name,
+        "urls": json.loads(session.urls) if isinstance(session.urls, str) else session.urls,
+        "browsers": json.loads(session.browsers) if isinstance(session.browsers, str) else session.browsers,
+        "resolutions": json.loads(session.resolutions) if isinstance(session.resolutions, str) else session.resolutions
+    }
+
+
+@app.get("/session-config/static/{session_id}")
+async def get_static_session_config(
+    session_id: str,
+    request: Request,
+    db: Session = Depends(auth.get_db)
+):
+    """Get static audit session configuration and results"""
+    print(f"[ENTRY] get_static_session_config called for session: {session_id}")
+    try:
+        # Get user from cookie
+        user = await get_current_user_from_cookie(request, db)
+        print(f"[AUTH] User authenticated: {user is not None}")
+        if not user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        # Get session
+        session = db.query(models.AuditSession).filter_by(
+            session_id=session_id,
+            user_id=user.id
+        ).first()
+        
+        if not session:
+            print(f"[ERROR] Session not found: {session_id}")
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Parse URLs
+        urls = json.loads(session.urls) if isinstance(session.urls, str) else session.urls
+        browsers = json.loads(session.browsers) if isinstance(session.browsers, str) else session.browsers
+        resolutions = json.loads(session.resolutions) if isinstance(session.resolutions, str) else session.resolutions
+        
+        # Get results from database
+        results = db.query(models.StaticAuditResult).filter_by(session_id=session_id).all()
+        
+        results_data = []
+        for result in results:
+            results_data.append({
+                "url": result.url,
+                "browser": result.browser,
+                "resolution": result.resolution,
+                "screenshot_path": result.screenshot_path,
+                "filename": result.filename
+            })
+        
+        print(f"[SUCCESS] Returning {len(urls)} URLs and {len(results_data)} results")
+        return {
+            "urls": urls,
+            "browsers": browsers,
+            "resolutions": resolutions,
+            "results": results_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Exception in get_static_session_config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/session-config/dynamic/{session_id}")
+async def get_dynamic_session_config(
+    session_id: str,
+    request: Request,
+    db: Session = Depends(auth.get_db)
+):
+    """Get dynamic audit session configuration and results"""
+    try:
+        # Get user from cookie
+        user = await get_current_user_from_cookie(request, db)
+        if not user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        # Get session
+        session = db.query(models.AuditSession).filter_by(
+            session_id=session_id,
+            user_id=user.id
+        ).first()
+        
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Parse URLs
+        urls = json.loads(session.urls) if isinstance(session.urls, str) else session.urls
+        browsers = json.loads(session.browsers) if isinstance(session.browsers, str) else session.browsers
+        resolutions = json.loads(session.resolutions) if isinstance(session.resolutions, str) else session.resolutions
+        
+        # Get results from database
+        results = db.query(models.DynamicAuditResult).filter_by(session_id=session_id).all()
+        
+        results_data = []
+        for result in results:
+            results_data.append({
+                "url": result.url,
+                "browser": result.browser,
+                "resolution": result.resolution,
+                "video_path": result.video_path,
+                "filename": result.filename
+            })
+        
+        return {
+            "urls": urls,
+            "browsers": browsers,
+            "resolutions": resolutions,
+            "results": results_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting dynamic session config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ========== PROXY ENDPOINT ==========

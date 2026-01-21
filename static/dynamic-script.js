@@ -8,18 +8,6 @@ let totalExpected = 0;
 let selectedBrowsers = [];
 let pollInterval = null;
 
-// Get authentication token from cookie
-function getToken() {
-  const cookies = document.cookie.split(';');
-  for (let cookie of cookies) {
-    const [name, value] = cookie.trim().split('=');
-    if (name === 'access_token') {
-      return value;
-    }
-  }
-  return null;
-}
-
 dropZone.onclick = () => fileInput.click();
 
 fileInput.onchange = () => {
@@ -29,32 +17,13 @@ fileInput.onchange = () => {
       <div class="w-24 h-24 mx-auto mb-4 bg-green-500/10 rounded-full flex items-center justify-center">
         <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-400"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
       </div>
-      <p class="text-2xl text-green-400">${file.name}<br>Ready for video audit!</p>
+      <p class="text-2xl text-green-400">${file.name}<br>Ready for dynamic audit!</p>
     `;
   }
 };
 
 form.onsubmit = async (e) => {
   e.preventDefault();
-
-  // Check authentication
-  const token = getToken();
-  if (!token) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Authentication Required',
-      text: 'Please log in to start an audit.',
-      background: '#0f172a',
-      color: '#f8fafc',
-      confirmButtonColor: '#3b82f6',
-      confirmButtonText: 'Go to Login'
-    }).then((result) => {
-      if (result.isConfirmed) {
-        window.location.href = "/login";
-      }
-    });
-    return;
-  }
 
   const manualUrls = document.getElementById('manual-urls').value;
 
@@ -131,9 +100,6 @@ form.onsubmit = async (e) => {
   try {
     const res = await fetch("/upload/dynamic", {
       method: "POST",
-      headers: {
-        'Authorization': `Bearer ${token}`
-      },
       body: formData
     });
 
@@ -235,31 +201,12 @@ async function stopSession() {
     return;
   }
 
-  const token = getToken();
-  if (!token) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Authentication Required',
-      text: 'Please log in to continue.',
-      background: '#0f172a',
-      color: '#f8fafc',
-      confirmButtonColor: '#3b82f6',
-      confirmButtonText: 'Go to Login'
-    }).then(() => {
-      window.location.href = "/login";
-    });
-    return;
-  }
-
   try {
     stopButton.disabled = true;
     stopButton.textContent = "Stopping...";
 
     const response = await fetch(`/api/sessions/${sessionId}/stop`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
+      method: 'POST'
     });
 
     if (response.ok) {
@@ -446,3 +393,66 @@ function showVideos(url, browser) {
       `;
     });
 }
+
+// Check for restart parameter on page load
+window.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const restartSessionId = urlParams.get('restart');
+
+  if (restartSessionId) {
+    const restartConfig = sessionStorage.getItem('restartConfig');
+
+    if (restartConfig) {
+      try {
+        const config = JSON.parse(restartConfig);
+
+        // Pre-fill URLs
+        if (config.urls && config.urls.length > 0) {
+          document.getElementById('manual-urls').value = config.urls.join('\n');
+        }
+
+        // Pre-fill session name
+        if (config.name) {
+          document.querySelector('input[name="session_name"]').value = config.name + ' (Restarted)';
+        }
+
+        // Pre-select browsers
+        if (config.browsers && config.browsers.length > 0) {
+          document.querySelectorAll('input[name="browser"]').forEach(cb => {
+            cb.checked = config.browsers.includes(cb.value);
+          });
+        }
+
+        // Pre-select resolutions
+        if (config.resolutions && config.resolutions.length > 0) {
+          document.querySelectorAll('input[name="resolution"]').forEach(cb => {
+            cb.checked = config.resolutions.includes(cb.value);
+          });
+        }
+
+        // Clear sessionStorage
+        sessionStorage.removeItem('restartConfig');
+
+        // Show success message and auto-submit
+        Swal.fire({
+          icon: 'success',
+          title: 'Session Restarted',
+          text: 'Starting dynamic audit with previous configuration...',
+          background: '#0f172a',
+          color: '#f8fafc',
+          confirmButtonColor: '#3b82f6',
+          timer: 2000,
+          showConfirmButton: false
+        });
+
+        // Auto-submit the form after a short delay
+        setTimeout(() => {
+          form.dispatchEvent(new Event('submit'));
+        }, 2000);
+
+      } catch (error) {
+        console.error('Error parsing restart config:', error);
+      }
+    }
+  }
+});

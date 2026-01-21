@@ -7,7 +7,7 @@ const submitBtn = form.querySelector('button[type="submit"]');
 document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const status = urlParams.get('status');
-    const sessionId = urlParams.get('session');
+    const sessionId = urlParams.get('session_id') || urlParams.get('session');
 
     if (status === 'completed' && sessionId) {
         // Show loading

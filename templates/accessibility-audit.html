@@ -1,124 +1,113 @@
 {% extends "base_platform.html" %}
 
 {% block content %}
-<div class="p-8 max-w-5xl mx-auto">
-    <div class="glass-panel p-8 rounded-2xl border border-white/5 relative overflow-hidden mb-8">
-
-        <div class="relative z-10 mb-8">
-            <div
-                class="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shadow-xl shadow-amber-500/10 mb-6 border border-amber-500/20">
-                <i data-lucide="accessibility" class="w-8 h-8"></i>
-            </div>
-            <h2 class="text-3xl font-semibold text-white mb-2">Accessibility Audit</h2>
-            <p class="text-slate-400 max-w-xl text-lg">
-                Ensure your website is accessible to everyone. Our automated audit checks for WCAG 2.1 violations using
-                the industry-standard axe-core engine.
-            </p>
+<div class="p-8 max-w-7xl mx-auto h-full flex flex-col">
+    <div class="mb-8 flex justify-between items-start">
+        <div>
+            <h1 class="text-3xl font-bold text-white mb-2">Accessibility Audit</h1>
+            <p class="text-gray-400">Validate WCAG 2.1 compliance using the axe-core engine.</p>
         </div>
-
-        <div id="auditFormContainer">
-            <form action="/api/accessibility-test" method="POST" enctype="multipart/form-data"
-                class="space-y-6 relative z-10">
-                <!-- File Upload -->
-                <div>
-                    <label class="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">Upload URL
-                        File</label>
-                    <div id="drop-zone"
-                        class="w-full h-32 border-2 border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-amber-500/50 hover:bg-slate-900/50 transition-all bg-slate-950/30">
-                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                            <i data-lucide="upload-cloud" class="w-8 h-8 text-slate-500 mb-3"></i>
-                            <p class="mb-2 text-sm text-slate-400"><span class="font-semibold text-amber-500">Click to
-                                    upload</span> or drag and drop</p>
-                            <p class="text-xs text-slate-500">urls.txt files only</p>
-                        </div>
-                    </div>
-                    <input id="file-upload" type="file" name="file" class="hidden" accept=".txt" />
-                </div>
-
-                <div class="relative py-2">
-                    <div class="absolute inset-0 flex items-center">
-                        <div class="w-full border-t border-white/10"></div>
-                    </div>
-                    <div class="relative flex justify-center text-sm">
-                        <span class="px-2 bg-[#0A0F1E] text-slate-500">OR</span>
-                    </div>
-                </div>
-
-                <!-- Manual Entry -->
-                <div>
-                    <label class="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">Manual Entry
-                        (One
-                        per line)</label>
-                    <div class="relative">
-                        <textarea name="urls" rows="5"
-                            class="w-full bg-slate-950/50 border border-white/10 rounded-xl p-4 text-slate-200 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all font-mono text-sm leading-relaxed placeholder-slate-600"
-                            placeholder="https://example.com&#10;https://example.com/about"></textarea>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-4 pt-2">
-                    <button type="submit"
-                        class="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white pl-6 pr-8 py-3.5 rounded-xl font-medium transition-all transform hover:scale-[1.02] shadow-lg shadow-amber-500/20 flex items-center gap-2 group">
-                        <span class="bg-white/20 p-1 rounded-md group-hover:bg-white/30 transition">
-                            <i data-lucide="search" class="w-4 h-4 text-white fill-current"></i>
-                        </span>
-                        Start Accessibility Audit
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <!-- Results Area -->
-        <div id="resultsArea" class="mt-8"></div>
+        <a href="/platform/history?type=accessibility"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition flex items-center gap-2">
+            <i data-lucide="history" class="w-4 h-4"></i>
+            View History
+        </a>
     </div>
 
-    <!-- Info Section -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="glass-panel p-6 rounded-xl border border-white/5 bg-slate-900/40">
-            <h3 class="font-semibold text-white mb-2 flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full bg-red-500"></div> Critical Issues
-            </h3>
-            <p class="text-sm text-slate-400">Blocks users from accessing content or features completely.</p>
+    <!-- UPLOAD SECTION -->
+    <div id="upload-section">
+        <form id="upload-form" class="max-w-5xl mx-auto space-y-8">
+            <div id="drop-zone"
+                class="border-2 border-dashed border-amber-500/30 rounded-2xl p-12 text-center cursor-pointer hover:border-amber-400 hover:bg-gray-800/30 transition-all bg-gray-900/40">
+                <div class="w-16 h-16 mx-auto mb-4 bg-amber-500/10 rounded-xl flex items-center justify-center">
+                    <i data-lucide="accessibility" class="w-8 h-8 text-amber-400"></i>
+                </div>
+                <p class="text-lg text-gray-300 mb-2">Drop your <strong>urls.txt</strong> file here or click to browse
+                </p>
+                <p class="text-sm text-gray-500 mb-4">One URL per line, plain text format</p>
+                <div class="inline-block text-left bg-gray-800/50 px-4 py-3 rounded-lg border border-gray-700/50">
+                    <p class="text-xs text-gray-400 mb-1">Example format:</p>
+                    <code class="text-xs text-amber-400 block">
+                        https://example.com<br>
+                        https://example.com/about<br>
+                        https://example.com/contact
+                    </code>
+                </div>
+                <input type="file" id="file-input" accept=".txt" class="hidden" />
+            </div>
+
+            <!-- Manual URL Entry -->
+            <div class="glass-panel rounded-xl p-6">
+                <h3 class="text-lg font-bold text-amber-300 mb-4">Manual URL Entry</h3>
+                <textarea id="manual-urls"
+                    class="w-full h-32 bg-gray-900/50 border border-gray-700 rounded-lg p-4 text-white focus:border-amber-500 focus:outline-none transition-colors font-mono text-sm"
+                    placeholder="https://example.com&#10;https://example.com/about"></textarea>
+                <p class="text-xs text-gray-500 mt-2">Enter URLs manually (one per line)</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Session Name -->
+                <!-- Project Name -->
+                <div class="glass-panel rounded-xl p-6">
+                    <h3 class="text-lg font-bold text-amber-300 mb-4">Project Name</h3>
+                    <input type="text" name="session_name" placeholder="Enter project name..." required
+                        class="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                </div>
+
+                <!-- Info -->
+                <div class="glass-panel rounded-xl p-6 flex flex-col justify-center">
+                    <h3 class="text-lg font-bold text-amber-300 mb-2">What we scan</h3>
+                    <ul class="space-y-2 text-sm text-gray-400">
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Critical & Serious WCAG Violations</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Contrast Ratios</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Alt Text & Label Analysis</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-green-500"></i>
+                            Keyboard Navigation</li>
+                    </ul>
+                </div>
+            </div>
+
+            <button type="submit"
+                class="w-full max-w-md mx-auto block py-4 bg-gradient-to-r from-amber-600 to-orange-600 rounded-xl font-bold text-xl hover:from-amber-500 hover:to-orange-500 shadow-lg shadow-amber-500/20 transition transform hover:-translate-y-0.5">
+                Start Accessibility Audit
+            </button>
+        </form>
+    </div>
+
+    <!-- PROGRESS SECTION -->
+    <div id="progress-section" class="hidden flex-1 flex items-center justify-center">
+        <div class="glass-panel rounded-2xl p-12 shadow-2xl max-w-2xl mx-auto w-full text-center">
+            <h2 class="text-3xl font-bold text-amber-400 mb-8">Analyzing Accessibility...</h2>
+            <div class="w-full bg-gray-900 rounded-full h-8 mb-6 overflow-hidden border border-gray-700">
+                <div id="progress-bar"
+                    class="bg-gradient-to-r from-amber-500 to-orange-600 h-full transition-all duration-300"
+                    style="width: 0%">
+                </div>
+            </div>
+            <p id="progress-text" class="text-2xl font-bold text-white mb-2">0%</p>
+            <p id="status-text" class="text-gray-400">Initializing tool...</p>
+            <div class="mt-8">
+                <button id="stop-button"
+                    class="px-6 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg hidden transition"
+                    onclick="stopSession()">
+                    Stop Session
+                </button>
+            </div>
         </div>
-        <div class="glass-panel p-6 rounded-xl border border-white/5 bg-slate-900/40">
-            <h3 class="font-semibold text-white mb-2 flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full bg-amber-500"></div> Serious Issues
-            </h3>
-            <p class="text-sm text-slate-400">Significant barriers that cause frustration for assistive tech users.</p>
-        </div>
-        <div class="glass-panel p-6 rounded-xl border border-white/5 bg-slate-900/40">
-            <h3 class="font-semibold text-white mb-2 flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full bg-blue-500"></div> best Practices
-            </h3>
-            <p class="text-sm text-slate-400">Checks against WCAG 2.0, 2.1 Level A and AA standards.</p>
+    </div>
+
+    <!-- RESULTS SECTION -->
+    <div id="results-section" class="hidden mt-8">
+        <h2 class="text-2xl font-bold text-white mb-6 border-b border-gray-800 pb-4">Audit Results</h2>
+        <div id="content-area" class="min-h-[500px]">
+            <!-- Results will be loaded here -->
         </div>
     </div>
 </div>
 
-<script src="/static/accessibility-audit.js"></script>
-<script>
-    lucide.createIcons();
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('status') === 'started') {
-        Swal.fire({
-            icon: 'success',
-            title: 'Audit Started',
-            text: 'Accessibility audit is running. Check your dashboard for upgrades.',
-            background: '#0f172a',
-            color: '#f8fafc',
-            timer: 3000,
-            showConfirmButton: false
-        });
-    }
-    if (urlParams.get('error') === 'no_urls') {
-        Swal.fire({
-            icon: 'error',
-            title: 'No URLs Provided',
-            text: 'Please upload a file or enter URLs manually.',
-            background: '#0f172a',
-            color: '#f8fafc',
-            confirmButtonColor: '#d97706'
-        });
-    }
-</script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="/static/accessibility-audit.js?v=2"></script>
 {% endblock %}

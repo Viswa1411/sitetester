@@ -2,14 +2,21 @@
 
 {% block content %}
 <div class="p-8 max-w-6xl mx-auto">
-    <div class="mb-8 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
-            <i data-lucide="eye" class="w-6 h-6"></i>
+    <div class="mb-8 flex justify-between items-start">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                <i data-lucide="eye" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-3xl font-bold text-white tracking-tight">Visual Regression</h1>
+                <p class="text-slate-400 mt-1">Compare two URLs pixel-by-pixel to detect visual changes.</p>
+            </div>
         </div>
-        <div>
-            <h1 class="text-3xl font-bold text-white tracking-tight">Visual Regression</h1>
-            <p class="text-slate-400 mt-1">Compare two URLs pixel-by-pixel to detect visual changes.</p>
-        </div>
+        <a href="/platform/history?type=visual"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition flex items-center gap-2">
+            <i data-lucide="history" class="w-4 h-4"></i>
+            View History
+        </a>
     </div>
 
     <!-- Controls -->

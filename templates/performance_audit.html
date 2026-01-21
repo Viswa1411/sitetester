@@ -1,242 +1,125 @@
 {% extends "base_platform.html" %}
 
 {% block content %}
-<div class="p-8 max-w-6xl mx-auto">
-    <div class="mb-8">
-        <h1 class="text-3xl font-bold text-white mb-2">Performance Audit</h1>
-        <p class="text-gray-400">Analyze page load metrics (TTFB, LCP, CLS) across your pages.</p>
+<div class="p-8 max-w-7xl mx-auto h-full flex flex-col">
+    <div class="mb-8 flex justify-between items-start">
+        <div>
+            <h1 class="text-3xl font-bold text-white mb-2">Performance Audit</h1>
+            <p class="text-gray-400">Analyze page load metrics (TTFB, LCP, FCP) and Core Web Vitals.</p>
+        </div>
+        <a href="/platform/history?type=performance"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition flex items-center gap-2">
+            <i data-lucide="history" class="w-4 h-4"></i>
+            View History
+        </a>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <!-- Input Form -->
-        <div class="glass-panel p-6 rounded-xl h-fit">
-            <h3 class="text-lg font-bold text-white mb-4">New Scan</h3>
-            <form id="performance-form" action="/api/performance-test" method="POST">
-                <label class="block text-sm font-medium text-gray-400 mb-2">URLs to Scan (One per line)</label>
-                <textarea name="urls" rows="6"
-                    class="w-full bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-lg focus:ring-2 focus:ring-green-500 outline-none mb-4 font-mono text-sm"
-                    placeholder="https://example.com/&#10;https://example.com/about" required></textarea>
+    <!-- UPLOAD SECTION -->
+    <div id="upload-section">
+        <form id="upload-form" class="max-w-5xl mx-auto space-y-8">
+            <div id="drop-zone"
+                class="border-2 border-dashed border-blue-500/30 rounded-2xl p-12 text-center cursor-pointer hover:border-blue-400 hover:bg-gray-800/30 transition-all bg-gray-900/40">
+                <div class="w-16 h-16 mx-auto mb-4 bg-blue-500/10 rounded-xl flex items-center justify-center">
+                    <i data-lucide="zap" class="w-8 h-8 text-blue-400"></i>
+                </div>
+                <p class="text-lg text-gray-300 mb-2">Drop your <strong>urls.txt</strong> file here or click to browse
+                </p>
+                <p class="text-sm text-gray-500 mb-4">One URL per line, plain text format</p>
+                <div class="inline-block text-left bg-gray-800/50 px-4 py-3 rounded-lg border border-gray-700/50">
+                    <p class="text-xs text-gray-400 mb-1">Example format:</p>
+                    <code class="text-xs text-blue-400 block">
+                        https://example.com<br>
+                        https://example.com/about<br>
+                        https://example.com/contact
+                    </code>
+                </div>
+                <input type="file" id="file-input" accept=".txt" class="hidden" />
+            </div>
 
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-400 mb-2">Strategy</label>
-                    <div class="flex gap-4">
-                        <label class="flex items-center cursor-pointer">
+            <!-- Manual URL Entry -->
+            <div class="glass-panel rounded-xl p-6">
+                <h3 class="text-lg font-bold text-blue-300 mb-4">Manual URL Entry</h3>
+                <textarea id="manual-urls"
+                    class="w-full h-32 bg-gray-900/50 border border-gray-700 rounded-lg p-4 text-white focus:border-blue-500 focus:outline-none transition-colors font-mono text-sm"
+                    placeholder="https://example.com&#10;https://example.com/about"></textarea>
+                <p class="text-xs text-gray-500 mt-2">Enter URLs manually (one per line)</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Session Name -->
+                <!-- Project Name -->
+                <div class="glass-panel rounded-xl p-6">
+                    <h3 class="text-lg font-bold text-blue-300 mb-4">Project Name</h3>
+                    <input type="text" name="session_name" placeholder="Enter project name..." required
+                        class="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- Strategy Options -->
+                <div class="glass-panel rounded-xl p-6">
+                    <h3 class="text-lg font-bold text-blue-300 mb-4">Device Strategy</h3>
+                    <div class="space-y-4">
+                        <label
+                            class="flex items-center p-3 border border-gray-700 rounded-lg hover:bg-gray-800/50 cursor-pointer transition">
                             <input type="radio" name="strategy" value="desktop" checked
-                                class="w-4 h-4 text-green-500 bg-gray-800 border-gray-600 focus:ring-green-500">
-                            <span class="ml-2 text-gray-300">Desktop</span>
+                                class="w-5 h-5 text-blue-500 bg-gray-900 border-gray-600 focus:ring-blue-500">
+                            <div class="ml-3">
+                                <span class="block text-white font-medium">Desktop</span>
+                                <span class="block text-gray-500 text-sm">Simulate a desktop environment (High
+                                    DPI)</span>
+                            </div>
                         </label>
-                        <label class="flex items-center cursor-pointer">
+                        <label
+                            class="flex items-center p-3 border border-gray-700 rounded-lg hover:bg-gray-800/50 cursor-pointer transition">
                             <input type="radio" name="strategy" value="mobile"
-                                class="w-4 h-4 text-green-500 bg-gray-800 border-gray-600 focus:ring-green-500">
-                            <span class="ml-2 text-gray-300">Mobile</span>
+                                class="w-5 h-5 text-blue-500 bg-gray-900 border-gray-600 focus:ring-blue-500">
+                            <div class="ml-3">
+                                <span class="block text-white font-medium">Mobile</span>
+                                <span class="block text-gray-500 text-sm">Simulate a mobile device (Slow 4G
+                                    throttling)</span>
+                            </div>
                         </label>
                     </div>
                 </div>
-
-                <button type="submit"
-                    class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-lg transition shadow-lg shadow-green-500/20">
-                    Start Analysis
-                </button>
-            </form>
-        </div>
-
-        <!-- Recent Checks -->
-        <div class="lg:col-span-2 glass-panel p-6 rounded-xl">
-            <h3 class="text-lg font-bold text-white mb-4">Latest Reports</h3>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-left">
-                    <thead>
-                        <tr class="text-gray-500 border-b border-gray-800">
-                            <th class="pb-3 text-sm font-medium">URL</th>
-                            <th class="pb-3 text-sm font-medium">Strategy</th>
-                            <th class="pb-3 text-sm font-medium">Score</th>
-                            <th class="pb-3 text-sm font-medium">TTFB</th>
-                            <th class="pb-3 text-sm font-medium">Load Time</th>
-                            <th class="pb-3 text-sm font-medium">Date</th>
-                        </tr>
-                    </thead>
-                    <tbody class="text-gray-300">
-                        {% if recent_results %}
-                        {% for result in recent_results %}
-                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
-                            <td class="py-4 truncate max-w-xs text-white">{{ result.url }}</td>
-                            <td class="py-4 text-gray-400">{{ result.device_preset }}</td>
-                            <td class="py-4">
-                                <span
-                                    class="px-2 py-1 rounded {% if result.score >= 80 %}bg-green-500/20 text-green-300{% elif result.score >= 60 %}bg-yellow-500/20 text-yellow-300{% else %}bg-red-500/20 text-red-300{% endif %} text-xs font-bold">
-                                    {{ result.score }}
-                                </span>
-                            </td>
-                            <td class="py-4">{{ result.ttfb }}ms</td>
-                            <td class="py-4">{{ "%.2f"|format(result.page_load / 1000) }}s</td>
-                            <td class="py-4 text-gray-400 text-sm">
-                                <span class="local-date" data-timestamp="{{ result.created_at }}">
-                                    {{ result.created_at }}
-                                </span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                        {% else %}
-                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
-                            <td colspan="6" class="py-8 text-center text-gray-500">
-                                No performance audits yet. Start your first scan above!
-                            </td>
-                        </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
             </div>
+
+            <button type="submit"
+                class="w-full max-w-md mx-auto block py-4 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl font-bold text-xl hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-500/20 transition transform hover:-translate-y-0.5">
+                Start Performance Audit
+            </button>
+        </form>
+    </div>
+
+    <!-- PROGRESS SECTION -->
+    <div id="progress-section" class="hidden flex-1 flex items-center justify-center">
+        <div class="glass-panel rounded-2xl p-12 shadow-2xl max-w-2xl mx-auto w-full text-center">
+            <h2 class="text-3xl font-bold text-blue-400 mb-8">Analyzing Performance...</h2>
+            <div class="w-full bg-gray-900 rounded-full h-8 mb-6 overflow-hidden border border-gray-700">
+                <div id="progress-bar"
+                    class="bg-gradient-to-r from-blue-500 to-indigo-600 h-full transition-all duration-300"
+                    style="width: 0%">
+                </div>
+            </div>
+            <p id="progress-text" class="text-2xl font-bold text-white mb-2">0%</p>
+            <p id="status-text" class="text-gray-400">Initializing performance audit...</p>
+            <div class="mt-8">
+                <button id="stop-button"
+                    class="px-6 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg hidden transition"
+                    onclick="stopSession()">
+                    Stop Session
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RESULTS SECTION -->
+    <div id="results-section" class="hidden mt-8">
+        <h2 class="text-2xl font-bold text-white mb-6 border-b border-gray-800 pb-4">Audit Results</h2>
+        <div id="content-area" class="min-h-[500px]">
+            <!-- Results will be loaded here -->
         </div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script>
-    const form = document.getElementById('performance-form');
-    const submitBtn = form.querySelector('button[type="submit"]');
-
-    function updateTable(results) {
-        const tbody = document.querySelector('table tbody');
-        if (!results || results.length === 0) return;
-
-        // Clear "No results" message if present
-        if (tbody.querySelector('td[colspan="6"]')) { // Changed colspan from 5 to 6
-            tbody.innerHTML = '';
-        }
-
-        // Add new results to the top
-        results.forEach(result => {
-            const row = document.createElement('tr');
-            row.className = 'border-b border-gray-800/50 hover:bg-gray-800/30 animate-pulse-once';
-
-            const scoreColor = result.score >= 80 ? 'bg-green-500/20 text-green-300' :
-                result.score >= 60 ? 'bg-yellow-500/20 text-yellow-300' :
-                    'bg-red-500/20 text-red-300';
-
-            row.innerHTML = `
-                <td class="py-4 truncate max-w-xs text-white">${result.url}</td>
-                <td class="py-4 text-gray-400">${result.device_preset || 'Desktop'}</td>
-                <td class="py-4">
-                    <span class="px-2 py-1 rounded ${scoreColor} text-xs font-bold">
-                        ${result.score}
-                    </span>
-                </td>
-                <td class="py-4">${Math.round(result.ttfb)}ms</td>
-                <td class="py-4">${(result.page_load / 1000).toFixed(2)}s</td>
-                <td class="py-4 text-green-400 text-sm font-bold">
-                    <span class="local-date" data-timestamp="${result.created_at || new Date().toISOString()}">
-                       ${formatDate(result.created_at || new Date().toISOString())}
-                    </span>
-                </td>
-            `;
-
-            tbody.insertBefore(row, tbody.firstChild);
-        });
-    }
-
-    async function pollResults(sessionId) {
-        const pollInterval = setInterval(async () => {
-            try {
-                const res = await fetch(`/api/results/${sessionId}`);
-                if (!res.ok) {
-                    // If the session is no longer found or an error occurs, stop polling
-                    clearInterval(pollInterval);
-                    console.error("Polling failed or session ended unexpectedly.");
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Start Analysis';
-                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                    return;
-                }
-
-                const data = await res.json(); // Assuming response is an object with status and results
-
-                if (data.status === 'completed' && data.results && data.results.length > 0) {
-                    clearInterval(pollInterval);
-                    updateTable(data.results); // Update with all results from the session
-
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Start Analysis';
-                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Analysis Complete',
-                        text: 'Performance results have been updated.',
-                        background: '#0f172a',
-                        color: '#f8fafc',
-                        toast: true,
-                        position: 'top-end',
-                        showConfirmButton: false,
-                        timer: 3000
-                    });
-                }
-            } catch (e) {
-                console.error("Polling error", e);
-            }
-        }, 2000);
-
-        // Timeout after 60s
-        setTimeout(() => {
-            clearInterval(pollInterval);
-            if (submitBtn.disabled) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Start Analysis';
-                submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            }
-        }, 60000);
-    }
-
-    form.addEventListener('submit', async function (e) {
-        e.preventDefault();
-
-        const urlsTextarea = document.querySelector('textarea[name="urls"]');
-        const urls = urlsTextarea.value.trim();
-
-        if (!urls) {
-            Swal.fire({
-                icon: 'info',
-                title: 'URLs Required',
-                text: 'Please enter at least one URL to scan.',
-                background: '#0f172a',
-                color: '#f8fafc',
-                confirmButtonColor: '#10b981'
-            });
-            return;
-        }
-
-        // Locking UI
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Analyzing...';
-        submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
-
-        try {
-            const formData = new FormData(form);
-            const response = await fetch('/api/performance-test', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                pollResults(data.session_id);
-            } else {
-                throw new Error('Analysis failed to start');
-            }
-        } catch (error) {
-            console.error(error);
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Start Analysis';
-            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-
-            Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: 'Failed to start analysis. Please try again.',
-                background: '#0f172a',
-                color: '#f8fafc'
-            });
-        }
-    });
-</script>
+<script src="/static/performance-audit.js?v=2"></script>
 {% endblock %}

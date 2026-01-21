@@ -8,18 +8,6 @@ let totalExpected = 0;
 let selectedBrowsers = [];
 let pollInterval = null;
 
-// Get authentication token from cookie
-function getToken() {
-  const cookies = document.cookie.split(';');
-  for (let cookie of cookies) {
-    const [name, value] = cookie.trim().split('=');
-    if (name === 'access_token') {
-      return value;
-    }
-  }
-  return null;
-}
-
 dropZone.onclick = () => fileInput.click();
 
 fileInput.onchange = () => {
@@ -36,25 +24,6 @@ fileInput.onchange = () => {
 
 form.onsubmit = async (e) => {
   e.preventDefault();
-
-  // Check authentication
-  const token = getToken();
-  if (!token) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Authentication Required',
-      text: 'Please log in to start an audit.',
-      background: '#0f172a',
-      color: '#f8fafc',
-      confirmButtonColor: '#3b82f6',
-      confirmButtonText: 'Go to Login'
-    }).then((result) => {
-      if (result.isConfirmed) {
-        window.location.href = "/login";
-      }
-    });
-    return;
-  }
 
   const manualUrls = document.getElementById('manual-urls').value;
 
@@ -130,9 +99,6 @@ form.onsubmit = async (e) => {
   try {
     const res = await fetch("/upload/static", {
       method: "POST",
-      headers: {
-        'Authorization': `Bearer ${token}`
-      },
       body: formData
     });
 
@@ -234,31 +200,12 @@ async function stopSession() {
     return;
   }
 
-  const token = getToken();
-  if (!token) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Authentication Required',
-      text: 'Please log in to continue.',
-      background: '#0f172a',
-      color: '#f8fafc',
-      confirmButtonColor: '#3b82f6',
-      confirmButtonText: 'Go to Login'
-    }).then(() => {
-      window.location.href = "/login";
-    });
-    return;
-  }
-
   try {
     stopButton.disabled = true;
     stopButton.textContent = "Stopping...";
 
     const response = await fetch(`/api/sessions/${sessionId}/stop`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
+      method: 'POST'
     });
 
     if (response.ok) {
@@ -413,7 +360,7 @@ async function showScreenshots(url, browser) {
         <p class="text-gray-400 mt-3 text-xl">${browser} • ${screenshots.length} Screenshot${screenshots.length > 1 ? 's' : ''}</p>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 max-w-7xl mx-auto">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-8 items-start max-w-7xl mx-auto">
         ${screenshots.map(screenshot => {
       // Use screenshot_path if it's a Supabase URL, otherwise construct local path
       let imageUrl;
@@ -428,16 +375,16 @@ async function showScreenshots(url, browser) {
 
       const [w, h] = screenshot.resolution.split('x');
       return `
-            <div class="bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-700 flex flex-col">
+            <div class="bg-gray-800 overflow-hidden shadow-2xl border border-gray-700 flex flex-col">
+              <div class="p-5 bg-gradient-to-r from-cyan-900 to-blue-900 text-center font-bold text-2xl">
+                ${w} × ${h}
+              </div>
               <div class="flex-1 bg-black flex items-center justify-center overflow-hidden">
                 <img src="${imageUrl}"
                      alt="${url} - ${browser} - ${screenshot.resolution}"
                      class="max-w-full max-h-full object-contain"
                      onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22><rect width=%22400%22 height=%22300%22 fill=%22%23111%22/><text x=%2250%%22 y=%2250%%22 fill=%22%23666%22 text-anchor=%22middle%22 dy=%22.3em%22>Screenshot Not Found</text></svg>';"
                      loading="lazy"/>
-              </div>
-              <div class="p-5 bg-gradient-to-r from-cyan-900 to-blue-900 text-center font-bold text-2xl">
-                ${w} × ${h}
               </div>
             </div>
           `;
@@ -454,3 +401,66 @@ async function showScreenshots(url, browser) {
     `;
   }
 }
+
+// Check for restart parameter on page load
+window.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const restartSessionId = urlParams.get('restart');
+
+  if (restartSessionId) {
+    const restartConfig = sessionStorage.getItem('restartConfig');
+
+    if (restartConfig) {
+      try {
+        const config = JSON.parse(restartConfig);
+
+        // Pre-fill URLs
+        if (config.urls && config.urls.length > 0) {
+          document.getElementById('manual-urls').value = config.urls.join('\n');
+        }
+
+        // Pre-fill session name
+        if (config.name) {
+          document.querySelector('input[name="session_name"]').value = config.name + ' (Restarted)';
+        }
+
+        // Pre-select browsers
+        if (config.browsers && config.browsers.length > 0) {
+          document.querySelectorAll('input[name="browser"]').forEach(cb => {
+            cb.checked = config.browsers.includes(cb.value);
+          });
+        }
+
+        // Pre-select resolutions
+        if (config.resolutions && config.resolutions.length > 0) {
+          document.querySelectorAll('input[name="resolution"]').forEach(cb => {
+            cb.checked = config.resolutions.includes(cb.value);
+          });
+        }
+
+        // Clear sessionStorage
+        sessionStorage.removeItem('restartConfig');
+
+        // Show success message and auto-submit
+        Swal.fire({
+          icon: 'success',
+          title: 'Session Restarted',
+          text: 'Starting audit with previous configuration...',
+          background: '#0f172a',
+          color: '#f8fafc',
+          confirmButtonColor: '#3b82f6',
+          timer: 2000,
+          showConfirmButton: false
+        });
+
+        // Auto-submit the form after a short delay
+        setTimeout(() => {
+          form.dispatchEvent(new Event('submit'));
+        }, 2000);
+
+      } catch (error) {
+        console.error('Error parsing restart config:', error);
+      }
+    }
+  }
+});

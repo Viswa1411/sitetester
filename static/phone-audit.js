@@ -6,18 +6,6 @@ const stopButton = document.getElementById('stop-button');
 let sessionId = null;
 let pollInterval = null;
 
-// Get authentication token from cookie
-function getToken() {
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (name === 'access_token') {
-            return value;
-        }
-    }
-    return null;
-}
-
 // Initialize drop zone
 dropZone.onclick = () => fileInput.click();
 
@@ -36,25 +24,6 @@ fileInput.onchange = () => {
 // Form submission
 form.onsubmit = async (e) => {
     e.preventDefault();
-
-    // Check authentication
-    const token = getToken();
-    if (!token) {
-        Swal.fire({
-            icon: 'warning',
-            title: 'Authentication Required',
-            text: 'Please log in to start an audit.',
-            background: '#0f172a',
-            color: '#f8fafc',
-            confirmButtonColor: '#3b82f6',
-            confirmButtonText: 'Go to Login'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = "/login";
-            }
-        });
-        return;
-    }
 
     const manualUrls = document.getElementById('manual-urls').value;
 
@@ -119,9 +88,6 @@ form.onsubmit = async (e) => {
     try {
         const res = await fetch("/upload/phone", {
             method: "POST",
-            headers: {
-                'Authorization': `Bearer ${token}`
-            },
             body: formData
         });
 
@@ -216,12 +182,7 @@ form.onsubmit = async (e) => {
 // Load results
 async function loadResults() {
     try {
-        const token = getToken();
-        const res = await fetch(`/phone-results/${sessionId}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
+        const res = await fetch(`/phone-results/${sessionId}`);
 
         if (!res.ok) {
             throw new Error("Failed to load results");
@@ -314,9 +275,7 @@ function displayResults(results) {
             issues.length === 0 ? 'bg-green-900/50 text-green-300' :
                 'bg-yellow-900/50 text-yellow-300';
 
-        const statusText = result.phone_count === 0 ? 'No Phones' :
-            issues.length === 0 ? 'Good' :
-                'Issues Found';
+        const statusText = result.status || (result.phone_count === 0 ? 'Not Found' : 'Found');
 
         return `
                                 <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
@@ -336,29 +295,29 @@ function displayResults(results) {
                                     </td>
                                     <td class="py-4 px-4">
                                         ${phoneNumbers.length > 0 ?
-                `<div class="max-w-xs">
-                                                ${phoneNumbers.map(phone => {
-                    const num = typeof phone === 'object' && phone !== null ? phone.number : phone;
-                    const loc = typeof phone === 'object' && phone !== null ? phone.location : '';
-                    return `<p class="text-sm text-gray-300 mb-1 flex items-center gap-2">
-                                                        ${num}
-                                                        ${loc ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 border border-gray-600">${loc}</span>` : ''}
-                                                    </p>`;
+                `<div class="space-y-1">
+                                                ${phoneNumbers.map(numData => {
+                    const num = typeof numData === 'object' ? numData.number : numData;
+                    const count = typeof numData === 'object' && numData.count ? numData.count : 1;
+                    return `<div class="text-sm text-teal-300">
+                                                        <span class="font-semibold">${num}</span>
+                                                        ${count > 1 ? `<span class="text-xs text-gray-400 ml-2">(${count} times)</span>` : ''}
+                                                    </div>`;
                 }).join('')}
                                             </div>` :
-                '<p class="text-gray-400 text-sm">No phone numbers found</p>'
+                '<p class="text-gray-400 text-sm">None found</p>'
             }
                                     </td>
-                                    <td class="py-4 px-4">
-                                        ${issues.length > 0 ?
+        <td class="py-4 px-4">
+            ${issues.length > 0 ?
                 `<div class="max-w-xs">
                                                 ${issues.map(issue => `<p class="text-sm text-yellow-300 mb-1">${issue}</p>`).join('')}
                                             </div>` :
                 '<p class="text-gray-400 text-sm">No issues</p>'
             }
-                                    </td>
-                                </tr>
-                            `;
+        </td>
+                                </tr >
+        `;
     }).join('')}
                     </tbody>
                 </table>
@@ -393,31 +352,12 @@ async function stopSession() {
         return;
     }
 
-    const token = getToken();
-    if (!token) {
-        Swal.fire({
-            icon: 'warning',
-            title: 'Authentication Required',
-            text: 'Please log in to continue.',
-            background: '#0f172a',
-            color: '#f8fafc',
-            confirmButtonColor: '#3b82f6',
-            confirmButtonText: 'Go to Login'
-        }).then(() => {
-            window.location.href = "/login";
-        });
-        return;
-    }
-
     try {
         stopButton.disabled = true;
         stopButton.textContent = "Stopping...";
 
         const response = await fetch(`/api/sessions/${sessionId}/stop`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            method: 'POST'
         });
 
         if (response.ok) {
@@ -448,3 +388,61 @@ async function stopSession() {
         stopButton.textContent = "Stop Session";
     }
 }
+
+// Check for restart parameter on page load
+// Check for restart parameter or session_id on page load
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionIdParam = urlParams.get('session_id') || urlParams.get('session');
+    const statusParam = urlParams.get('status');
+    const restartSessionId = urlParams.get('restart');
+
+    if (statusParam === 'completed' && sessionIdParam) {
+        sessionId = sessionIdParam; // Set global sessionId
+        // Hide upload, show results
+        document.getElementById('upload-section').classList.add('hidden');
+        document.getElementById('results-section').classList.remove('hidden');
+        loadResults();
+    } else if (restartSessionId) {
+        const restartConfig = sessionStorage.getItem('restartConfig');
+
+        if (restartConfig) {
+            try {
+                const config = JSON.parse(restartConfig);
+
+                // Pre-fill URLs
+                if (config.urls && config.urls.length > 0) {
+                    document.getElementById('manual-urls').value = config.urls.join('\n');
+                }
+
+                // Pre-fill session name
+                if (config.name) {
+                    document.querySelector('input[name="session_name"]').value = config.name + ' (Restarted)';
+                }
+
+                // Clear sessionStorage
+                sessionStorage.removeItem('restartConfig');
+
+                // Show success message and auto-submit
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Session Restarted',
+                    text: 'Starting phone audit with previous configuration...',
+                    background: '#0f172a',
+                    color: '#f8fafc',
+                    confirmButtonColor: '#3b82f6',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+
+                // Auto-submit the form after a short delay
+                setTimeout(() => {
+                    form.dispatchEvent(new Event('submit'));
+                }, 2000);
+
+            } catch (error) {
+                console.error('Error parsing restart config:', error);
+            }
+        }
+    }
+});

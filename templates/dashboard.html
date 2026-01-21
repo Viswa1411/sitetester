@@ -113,13 +113,15 @@
 
             <div class="flex-1 overflow-y-auto max-h-[400px]">
                 {% for session in recent_sessions %}
-                <a href="{% if session.session_type == 'accessibility' %}/accessibility-results/{{session.session_id}}
-                         {% elif session.session_type == 'accessibility' %}/accessibility-results/{{session.session_id}}
-                         {% elif session.session_type == 'visual' %}/platform/visual?status=completed&session={{session.session_id}}
-                         {% elif session.session_type == 'performance' %}/platform/performance?status=completed&session={{session.session_id}}
+                <a href="{% if session.session_type == 'accessibility' %}/platform/accessibility?status=completed&session_id={{session.session_id}}
+                         {% elif session.session_type == 'visual' %}/platform/visual?status=completed&session_id={{session.session_id}}
+                         {% elif session.session_type == 'performance' %}/platform/performance?status=completed&session_id={{session.session_id}}
                          {% elif session.session_type == 'static' %}/static-results/{{session.session_id}}
-                         {% elif session.session_type == 'phone' %}/phone-audit?status=completed
-                         {% elif session.session_type == 'h1' %}/h1-audit?status=completed
+                         {% elif session.session_type == 'dynamic' %}/dynamic-results/{{session.session_id}}
+                         {% elif session.session_type == 'phone' %}/phone-audit?status=completed&session_id={{session.session_id}}
+                         {% elif session.session_type == 'h1' %}/h1-audit?status=completed&session_id={{session.session_id}}
+                         {% elif session.session_type == 'meta-tags' %}/scan/meta-tags?status=completed&session_id={{session.session_id}}
+                         {% elif session.session_type == 'sitemap' %}/scan/xml-sitemaps?status=completed&session_id={{session.session_id}}
                          {% else %}/static-results/{{session.session_id}}{% endif %}"
                     class="block p-4 border-b border-white/5 hover:bg-white/5 transition group">
 

@@ -7,6 +7,15 @@
         <div>
             <h1 class="text-3xl font-bold text-white tracking-tight">Audit History</h1>
             <p class="text-slate-400 mt-1">View and manage your past audit sessions.</p>
+            <div id="filter-badge" class="hidden mt-2">
+                <span
+                    class="px-3 py-1 bg-blue-500/20 text-blue-300 text-xs rounded-full font-medium border border-blue-500/30 inline-flex items-center gap-2">
+                    Filtered: <span id="filter-type-text"></span>
+                    <button onclick="clearFilter()" class="hover:text-white transition">
+                        <i data-lucide="x" class="w-3 h-3"></i>
+                    </button>
+                </span>
+            </div>
         </div>
     </div>
 
@@ -19,7 +28,7 @@
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
             <!-- Unified Audit Removed -->
 
-            <a href="/responsive"
+            <a href="/responsive/static"
                 class="p-4 bg-slate-800/50 hover:bg-slate-800 border border-white/5 hover:border-blue-500/50 rounded-xl transition group text-center flex flex-col items-center gap-2">
                 <div class="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg group-hover:scale-110 transition">
                     <i data-lucide="camera" class="w-5 h-5"></i>
@@ -114,7 +123,7 @@
             <table class="w-full text-left border-collapse">
                 <thead>
                     <tr class="bg-slate-900/50 border-b border-white/5 text-xs text-slate-400 uppercase tracking-wider">
-                        <th class="px-6 py-4 font-medium">Session Name</th>
+                        <th class="px-6 py-4 font-medium">Project Name</th>
                         <th class="px-6 py-4 font-medium">Type</th>
                         <th class="px-6 py-4 font-medium">Status</th>
                         <th class="px-6 py-4 font-medium">Date</th>
@@ -124,7 +133,8 @@
                 <tbody class="text-sm divide-y divide-white/5">
                     {% if sessions %}
                     {% for session in sessions %}
-                    <tr class="hover:bg-white/5 transition session-row" data-name="{{ session.name|lower }}">
+                    <tr class="hover:bg-white/5 transition session-row" data-name="{{ session.name|lower }}"
+                        data-type="{{ session.session_type }}">
                         <td class="px-6 py-4">
                             <div class="font-medium text-white">{{ session.name }}</div>
                             <div class="text-xs text-slate-500 mt-0.5">{{ session.urls|length }} URL(s)</div>
@@ -189,13 +199,13 @@
 
                                 {% if session.status == 'completed' %}
                                 <a href="{% if session.session_type == 'unified' %}/unified-results/{{session.session_id}}
-                                         {% elif session.session_type == 'accessibility' %}/platform/accessibility?status=completed&session={{session.session_id}}
-                                         {% elif session.session_type == 'visual' %}/platform/visual?status=completed&session={{session.session_id}}
-                                         {% elif session.session_type == 'performance' %}/platform/performance?status=completed&session={{session.session_id}}
+                                         {% elif session.session_type == 'accessibility' %}/platform/accessibility?status=completed&session_id={{session.session_id}}
+                                         {% elif session.session_type == 'visual' %}/platform/visual?status=completed&session_id={{session.session_id}}
+                                         {% elif session.session_type == 'performance' %}/platform/performance?status=completed&session_id={{session.session_id}}
                                          {% elif session.session_type == 'static' %}/static-results/{{session.session_id}}
                                          {% elif session.session_type == 'dynamic' %}/dynamic-results/{{session.session_id}}
-                                         {% elif session.session_type == 'phone' %}/phone-audit?status=completed&session={{session.session_id}}
-                                         {% elif session.session_type == 'h1' %}/h1-audit?status=completed&session={{session.session_id}}
+                                         {% elif session.session_type == 'phone' %}/phone-audit?status=completed&session_id={{session.session_id}}
+                                         {% elif session.session_type == 'h1' %}/h1-audit?status=completed&session_id={{session.session_id}}
                                          {% elif session.session_type == 'meta-tags' %}/scan/meta-tags?status=completed&session_id={{session.session_id}}
                                          {% elif session.session_type == 'sitemap' %}/scan/xml-sitemaps?status=completed&session_id={{session.session_id}}
                                          {% else %}/static-results/{{session.session_id}}{% endif %}"
@@ -204,6 +214,12 @@
                                     <i data-lucide="eye" class="w-4 h-4"></i>
                                 </a>
                                 {% endif %}
+
+                                <button onclick="restartSession('{{ session.session_id }}')"
+                                    class="p-2 bg-green-500/10 text-green-400 hover:bg-green-600 hover:text-white rounded-lg transition"
+                                    title="Restart">
+                                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                </button>
 
                                 <button
                                     onclick="deleteSession('{{ session.session_id }}', '{{ session.session_type }}')"
@@ -386,5 +402,97 @@
             row.style.display = name.includes(term) ? '' : 'none';
         });
     });
+
+    // Type Filter
+    function applyTypeFilter() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const filterType = urlParams.get('type');
+
+        if (filterType) {
+            // Show filter badge
+            const badge = document.getElementById('filter-badge');
+            const filterText = document.getElementById('filter-type-text');
+            if (badge && filterText) {
+                const typeNames = {
+                    'static': 'Static Audit',
+                    'dynamic': 'Dynamic Audit',
+                    'h1': 'H1 Audit',
+                    'phone': 'Phone Audit',
+                    'meta-tags': 'Meta Tags',
+                    'sitemap': 'XML Sitemaps',
+                    'performance': 'Performance',
+                    'accessibility': 'Accessibility',
+                    'visual': 'Visual Regression'
+                };
+                filterText.textContent = typeNames[filterType] || filterType;
+                badge.classList.remove('hidden');
+                lucide.createIcons();
+            }
+
+            // Filter rows
+            document.querySelectorAll('.session-row').forEach(row => {
+                const sessionType = row.getAttribute('data-type');
+                if (sessionType === filterType) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+    }
+
+    function clearFilter() {
+        window.location.href = '/platform/history';
+    }
+
+    // Restart Session Function
+    async function restartSession(sessionId) {
+        try {
+            const response = await fetch(`/api/session/${sessionId}/config`);
+            if (!response.ok) throw new Error('Failed to fetch session config');
+
+            const config = await response.json();
+
+            // Redirect to appropriate audit page with restart parameter
+            const auditPages = {
+                'static': '/responsive/static',
+                'dynamic': '/responsive/dynamic',
+                'h1': '/h1-audit',
+                'phone': '/phone-audit',
+                'meta-tags': '/scan/meta-tags',
+                'sitemap': '/scan/xml-sitemaps',
+                'performance': '/platform/performance',
+                'accessibility': '/platform/accessibility',
+                'visual': '/platform/visual'
+            };
+
+            const targetPage = auditPages[config.session_type];
+            if (targetPage) {
+                // Store config in sessionStorage for the audit page to read
+                sessionStorage.setItem('restartConfig', JSON.stringify(config));
+                window.location.href = `${targetPage}?restart=${sessionId}`;
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Unknown Audit Type',
+                    text: `Cannot restart audit of type: ${config.session_type}`,
+                    background: '#0f172a',
+                    color: '#f8fafc'
+                });
+            }
+        } catch (error) {
+            console.error('Restart error:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Restart Failed',
+                text: 'Could not load session configuration. Please try again.',
+                background: '#0f172a',
+                color: '#f8fafc'
+            });
+        }
+    }
+
+    // Apply filter on page load
+    applyTypeFilter();
 </script>
 {% endblock %}

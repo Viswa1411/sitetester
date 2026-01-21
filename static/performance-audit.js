@@ -1,4 +1,4 @@
-// Accessibility Audit JavaScript
+// Performance Audit JavaScript
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const form = document.getElementById('upload-form');
@@ -11,16 +11,16 @@ dropZone.onclick = () => fileInput.click();
 
 dropZone.ondragover = (e) => {
     e.preventDefault();
-    dropZone.classList.add('border-amber-500', 'bg-amber-500/10');
+    dropZone.classList.add('border-green-500', 'bg-green-500/10');
 };
 
 dropZone.ondragleave = () => {
-    dropZone.classList.remove('border-amber-500', 'bg-amber-500/10');
+    dropZone.classList.remove('border-green-500', 'bg-green-500/10');
 };
 
 dropZone.ondrop = (e) => {
     e.preventDefault();
-    dropZone.classList.remove('border-amber-500', 'bg-amber-500/10');
+    dropZone.classList.remove('border-green-500', 'bg-green-500/10');
     const files = e.dataTransfer.files;
     if (files.length > 0) {
         fileInput.files = files;
@@ -37,13 +37,13 @@ fileInput.onchange = () => {
 
 function updateDropZone(file) {
     dropZone.innerHTML = `
-        <div class="w-16 h-16 mx-auto mb-4 bg-amber-500/10 rounded-full flex items-center justify-center">
-             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-amber-400"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <div class="w-16 h-16 mx-auto mb-4 bg-green-500/10 rounded-full flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-400"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
         </div>
-        <p class="text-xl text-amber-400 font-medium">${file.name}</p>
-        <p class="text-sm text-gray-500 mt-1">Ready to scan</p>
+        <p class="text-xl text-green-400 font-medium">${file.name}</p>
+        <p class="text-sm text-gray-500 mt-1">Ready to analyze</p>
     `;
-    dropZone.classList.add('border-amber-500/50');
+    dropZone.classList.add('border-green-500/50');
 }
 
 // Form submission
@@ -65,6 +65,8 @@ form.onsubmit = async (e) => {
     }
 
     const sessionName = document.querySelector('input[name="session_name"]').value;
+    const strategyElement = document.querySelector('input[name="strategy"]:checked');
+    const strategy = strategyElement ? strategyElement.value : 'desktop';
 
     if (!sessionName.trim()) {
         Swal.fire({
@@ -81,7 +83,7 @@ form.onsubmit = async (e) => {
     // Show progress section
     document.getElementById('upload-section').classList.add('hidden');
     document.getElementById('progress-section').classList.remove('hidden');
-    document.getElementById('status-text').textContent = "Initializing accessibility audit...";
+    document.getElementById('status-text').textContent = "Initializing performance analysis...";
     stopButton.classList.remove('hidden');
 
     const formData = new FormData();
@@ -89,15 +91,13 @@ form.onsubmit = async (e) => {
         formData.append("file", fileInput.files[0]);
     }
     if (manualUrls.trim()) {
-        formData.append("urls", manualUrls.trim());
+        formData.append("manual_urls", manualUrls.trim());
     }
     formData.append("session_name", sessionName);
+    formData.append("strategy", strategy);
 
     try {
-        // The endpoint is /api/accessibility-test logic. 
-        // Need to update backend logic?
-        // Let's implement /upload/accessibility route first, similar to others.
-        const res = await fetch("/upload/accessibility", {
+        const res = await fetch("/upload/performance", {
             method: "POST",
             body: formData
         });
@@ -114,13 +114,12 @@ form.onsubmit = async (e) => {
         const data = await res.json();
         sessionId = data.session;
 
-        document.getElementById('status-text').textContent = "Analyzing accessibility...";
+        document.getElementById('status-text').textContent = `Analyzing performance (${strategy})...`;
 
         // Start polling for progress
         pollInterval = setInterval(async () => {
             try {
-                // We need a progress endpoint for accessibility too.
-                const progRes = await fetch(`/progress/accessibility/${sessionId}`);
+                const progRes = await fetch(`/progress/performance/${sessionId}`);
                 const prog = await progRes.json();
                 const completed = prog.completed || 0;
                 const total = prog.total || 1;
@@ -129,15 +128,17 @@ form.onsubmit = async (e) => {
 
                 document.getElementById('progress-bar').style.width = `${percent}%`;
                 document.getElementById('progress-bar').textContent = `${percent}%`;
-                document.getElementById('status-text').textContent = `Audited ${completed} of ${total} pages...`;
+                document.getElementById('status-text').textContent = `Analyzed ${completed} of ${total} pages...`;
 
+                // Handle different statuses
                 if (status === "stopped") {
                     clearInterval(pollInterval);
                     document.getElementById('status-text').textContent = "Session stopped by user.";
                     document.getElementById('progress-bar').style.backgroundColor = "#dc2626";
                     stopButton.classList.add('hidden');
+
                     setTimeout(() => {
-                        window.location.href = "/platform/history?type=accessibility";
+                        window.location.href = "/platform/history?type=performance";
                     }, 2000);
                     return;
                 }
@@ -188,6 +189,7 @@ async function loadResults() {
         }
 
         const results = await res.json();
+        // The API returns an array directly for performance type
         displayResults(results);
     } catch (err) {
         console.error("Error loading results:", err);
@@ -212,21 +214,15 @@ function displayResults(results) {
         return;
     }
 
-    // Calculate Stats
+    // Calculate Summary Stats
     const totalPages = results.length;
-    let totalCritical = 0;
-    let totalSerious = 0;
-    let totalModerate = 0;
+    const avgScore = Math.round(results.reduce((sum, r) => sum + (r.score || 0), 0) / totalPages) || 0;
+    const avgLoadTime = (results.reduce((sum, r) => sum + (r.page_load || 0), 0) / totalPages / 1000).toFixed(2);
 
-    results.forEach(r => {
-        if (r.violations) {
-            r.violations.forEach(v => {
-                if (v.impact === 'critical') totalCritical++;
-                else if (v.impact === 'serious') totalSerious++;
-                else if (v.impact === 'moderate') totalModerate++;
-            });
-        }
-    });
+    // Count Good/Fair/Poor
+    const good = results.filter(r => r.score >= 90).length;
+    const needsImprovement = results.filter(r => r.score >= 50 && r.score < 90).length;
+    const poor = results.filter(r => r.score < 50).length;
 
     contentArea.innerHTML = `
         <!-- Summary Stats -->
@@ -236,69 +232,90 @@ function displayResults(results) {
                 <p class="text-3xl font-bold text-white">${totalPages}</p>
             </div>
             <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
-                <p class="text-gray-400 text-sm">Critical Issues</p>
-                <p class="text-3xl font-bold text-red-400">${totalCritical}</p>
+                <p class="text-gray-400 text-sm">Average Score</p>
+                <p class="text-3xl font-bold ${getScoreColor(avgScore)}">${avgScore}</p>
             </div>
-             <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
-                <p class="text-gray-400 text-sm">Serious Issues</p>
-                <p class="text-3xl font-bold text-amber-400">${totalSerious}</p>
+            <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                <p class="text-gray-400 text-sm">Avg Load Time</p>
+                <p class="text-3xl font-bold text-blue-400">${avgLoadTime}s</p>
             </div>
-             <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
-                <p class="text-gray-400 text-sm">Moderate Issues</p>
-                <p class="text-3xl font-bold text-blue-400">${totalModerate}</p>
+            <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                <p class="text-gray-400 text-sm">Health</p>
+                <div class="flex gap-2 mt-2">
+                    <span class="text-green-400 text-sm font-bold">${good} Good</span>
+                    <span class="text-yellow-400 text-sm font-bold">${needsImprovement} Fair</span>
+                    <span class="text-red-400 text-sm font-bold">${poor} Poor</span>
+                </div>
             </div>
         </div>
         
         <!-- Detailed Results -->
-        <div class="space-y-6">
-            ${results.map(r => `
-                <div class="bg-gray-800/30 backdrop-blur rounded-2xl p-6 border border-gray-700/50">
-                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-                         <div class="font-medium truncate max-w-lg text-amber-300 text-lg">${r.url}</div>
-                         <div class="flex gap-2 mt-2 md:mt-0">
-                            <span class="px-2 py-1 bg-red-500/10 text-red-400 text-xs rounded border border-red-500/20">${r.violations ? r.violations.filter(v => v.impact === 'critical').length : 0} Critical</span>
-                            <span class="px-2 py-1 bg-amber-500/10 text-amber-400 text-xs rounded border border-amber-500/20">${r.violations ? r.violations.filter(v => v.impact === 'serious').length : 0} Serious</span>
-                         </div>
-                    </div>
-                    
-                    ${r.violations && r.violations.length > 0 ? `
-                        <div class="bg-gray-900/50 rounded-xl border border-white/5 overflow-hidden">
-                             ${r.violations.map(v => `
-                                <div class="p-4 border-b border-white/5 last:border-0 hover:bg-white/5 transition">
-                                    <div class="flex items-start gap-4">
-                                        <div class="mt-1">
-                                            ${v.impact === 'critical' ? '<span class="text-red-500"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>' :
-            v.impact === 'serious' ? '<span class="text-amber-500"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>' :
-                '<span class="text-blue-500"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span>'}
-                                        </div>
-                                        <div class="flex-1">
-                                            <div class="flex justify-between">
-                                                <h4 class="text-white font-medium text-sm">${v.help}</h4>
-                                                <span class="text-xs font-mono text-gray-500">${v.id}</span>
+        <div class="bg-gray-800/30 backdrop-blur rounded-2xl p-6 border border-gray-700/50">
+            <h3 class="text-2xl font-bold text-white mb-6">Detailed Performance Metrics</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="text-left border-b border-gray-700">
+                            <th class="pb-3 px-4">URL</th>
+                            <th class="pb-3 px-4">Score</th>
+                            <th class="pb-3 px-4">TTFB</th>
+                            <th class="pb-3 px-4">FCP</th>
+                            <th class="pb-3 px-4">Load Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${results.map(result => {
+        const score = result.score || 0;
+        const ttfb = result.ttfb || 0;
+        const fcp = result.fcp || 0;
+        const loadTime = (result.page_load / 1000).toFixed(2);
+
+        return `
+                                <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
+                                    <td class="py-4 px-4">
+                                        <div class="font-medium truncate max-w-xs text-indigo-300">${result.url}</div>
+                                        <div class="text-xs text-gray-500">${result.device_preset || 'Desktop'}</div>
+                                    </td>
+                                    <td class="py-4 px-4">
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-16 bg-gray-700 rounded-full h-2 overflow-hidden">
+                                                <div class="h-full ${getScoreBgColor(score)}" style="width: ${score}%"></div>
                                             </div>
-                                            <p class="text-gray-400 text-sm mt-1 mb-2">${v.description}</p>
-                                            
-                                            <div class="bg-black/30 p-2 rounded text-xs font-mono text-gray-300 border border-white/5 break-all">
-                                                ${v.nodes && v.nodes.length > 0 ? v.nodes[0].target[0] : 'Global Issue'}
-                                            </div>
+                                            <span class="font-bold ${getScoreColor(score)}">${score}</span>
                                         </div>
-                                    </div>
-                                </div>
-                             `).join('')}
-                        </div>
-                    ` : '<p class="text-green-400 text-sm">No violations found!</p>'}
-                </div>
-            `).join('')}
+                                    </td>
+                                    <td class="py-4 px-4 text-gray-300">${ttfb}ms</td>
+                                    <td class="py-4 px-4 text-gray-300">${fcp}ms</td>
+                                    <td class="py-4 px-4 font-mono text-blue-300 font-bold">${loadTime}s</td>
+                                </tr>
+                            `;
+    }).join('')}
+                    </tbody>
+                </table>
+            </div>
         </div>
         
         <!-- Export Button -->
         <div class="mt-8 text-center">
-            <button onclick="exportResults()" class="px-6 py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 rounded-xl font-bold text-lg shadow-lg shadow-amber-500/20">
+            <button onclick="exportResults()" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl font-bold text-lg shadow-lg shadow-blue-500/20">
                 Export Results as CSV
             </button>
         </div>
     `;
 }
+
+function getScoreColor(score) {
+    if (score >= 90) return 'text-green-400';
+    if (score >= 50) return 'text-yellow-400';
+    return 'text-red-400';
+}
+
+function getScoreBgColor(score) {
+    if (score >= 90) return 'bg-green-500';
+    if (score >= 50) return 'bg-yellow-500';
+    return 'bg-red-500';
+}
+
 
 // Stop session
 async function stopSession() {
