@@ -5,6 +5,7 @@ const form = document.getElementById('upload-form');
 const stopButton = document.getElementById('stop-button');
 let sessionId = null;
 let pollInterval = null;
+let currentResults = null;
 
 // Initialize drop zone
 dropZone.onclick = () => fileInput.click();
@@ -202,6 +203,7 @@ async function loadResults() {
 
 // Display results
 function displayResults(results) {
+    currentResults = results; // Store for export
     const contentArea = document.getElementById('content-area');
 
     if (!results || results.length === 0) {
@@ -334,16 +336,91 @@ function displayResults(results) {
 }
 
 // Export results as CSV
+// Export results as CSV
 function exportResults() {
-    // For now, show a message
-    Swal.fire({
-        icon: 'info',
-        title: 'Feature Coming Soon',
-        html: 'CSV export is currently in development.<br><br>In the meantime, you can:<ul class="text-left mt-2 ml-4"><li>• Copy results from the table</li><li>• Take screenshots for reports</li><li>• Contact <a href="/support" class="text-blue-400">support</a> for bulk export assistance</li></ul>',
-        background: '#0f172a',
-        color: '#f8fafc',
-        confirmButtonColor: '#3b82f6'
-    });
+    if (!currentResults || currentResults.length === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Data',
+            text: 'There are no results to export.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+        return;
+    }
+
+    try {
+        // Define headers
+        const headers = ['URL', 'Phone Count', 'Status', 'Phone Numbers', 'Issues'];
+
+        // Convert results to CSV rows
+        const csvRows = currentResults.map(result => {
+            // Determine status text
+            const statusText = result.status || (result.phone_count === 0 ? 'Not Found' : 'Found');
+
+            // Format phone numbers
+            let phonesStr = '';
+            if (result.phone_numbers && Array.isArray(result.phone_numbers)) {
+                phonesStr = result.phone_numbers.map(p => {
+                    const num = typeof p === 'object' ? p.number : p;
+                    const count = typeof p === 'object' && p.count ? ` (${p.count})` : '';
+                    return num + count;
+                }).join('; ');
+            }
+
+            // Format issues
+            let issuesStr = '';
+            if (result.issues && Array.isArray(result.issues)) {
+                issuesStr = result.issues.join('; ');
+            }
+
+            // Return CSV formatted row
+            return [
+                `"${result.url.replace(/"/g, '""')}"`,
+                result.phone_count,
+                `"${statusText}"`,
+                `"${phonesStr.replace(/"/g, '""')}"`,
+                `"${issuesStr.replace(/"/g, '""')}"`
+            ].join(',');
+        });
+
+        // Combine headers and rows
+        const csvContent = [headers.join(',')].concat(csvRows).join('\n');
+
+        // Create blob and download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `phone_audit_results_${sessionId || 'export'}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Export Successful',
+            text: 'Your CSV file has been downloaded.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6',
+            timer: 2000,
+            showConfirmButton: false
+        });
+
+    } catch (error) {
+        console.error('Export error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Export Failed',
+            text: 'An error occurred while generating the CSV file.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+    }
 }
 
 // Stop session

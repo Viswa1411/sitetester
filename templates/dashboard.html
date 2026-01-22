@@ -12,6 +12,12 @@
     </div>
 
     <!-- KPI Grid -->
+    <script id="activity-data" type="application/json">
+        {
+            "labels": {{ activity_labels | to_json }},
+            "values": {{ activity_data | to_json }}
+        }
+    </script>
     <!-- Quick Actions -->
     <div class="mb-10">
         <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
@@ -84,14 +90,6 @@
                 </div>
                 <span class="text-sm font-medium text-slate-300 group-hover:text-white">XML Sitemaps</span>
             </a>
-
-            <a href="/compare-urls"
-                class="p-4 bg-slate-800/50 hover:bg-slate-800 border border-white/5 hover:border-blue-500/50 rounded-xl transition group text-center flex flex-col items-center gap-2">
-                <div class="p-2 bg-violet-500/10 text-violet-400 rounded-lg group-hover:scale-110 transition">
-                    <i data-lucide="git-compare" class="w-5 h-5"></i>
-                </div>
-                <span class="text-sm font-medium text-slate-300 group-hover:text-white">URL Compare</span>
-            </a>
         </div>
     </div>
 
@@ -130,7 +128,6 @@
                          {% elif session.session_type == 'h1' %}/h1-audit?status=completed&session_id={{session.session_id}}
                          {% elif session.session_type == 'meta-tags' %}/scan/meta-tags?status=completed&session_id={{session.session_id}}
                          {% elif session.session_type == 'sitemap' %}/scan/xml-sitemaps?status=completed&session_id={{session.session_id}}
-                         {% elif session.session_type == 'url-compare' %}/compare-results/{{session.session_id}}
                          {% else %}/static-results/{{session.session_id}}{% endif %}"
                     class="block p-4 border-b border-white/5 hover:bg-white/5 transition group">
 
@@ -152,8 +149,6 @@
                             <i data-lucide="heading" class="w-5 h-5"></i>
                             {% elif session.session_type == 'visual' %}
                             <i data-lucide="eye" class="w-5 h-5"></i>
-                            {% elif session.session_type == 'url-compare' %}
-                            <i data-lucide="git-compare" class="w-5 h-5"></i>
                             {% else %}
                             <i data-lucide="file-text" class="w-5 h-5"></i>
                             {% endif %}
@@ -206,13 +201,19 @@
     gradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)'); // Blue 500
     gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
 
+    // Data from server
+    const dataScript = document.getElementById('activity-data');
+    const chartData = JSON.parse(dataScript.textContent);
+    const activityLabels = chartData.labels;
+    const activityData = chartData.values;
+
     new Chart(ctx, {
         type: 'line',
         data: {
-            labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+            labels: activityLabels,
             datasets: [{
                 label: 'Audits',
-                data: [4, 6, 8, 5, 9, 4, 7], // Example data
+                data: activityData,
                 borderColor: '#3b82f6', // Blue 500
                 backgroundColor: gradient,
                 borderWidth: 2,

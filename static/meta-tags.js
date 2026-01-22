@@ -10,6 +10,7 @@ const stopButton = document.getElementById('stop-button'); // If hidden but exis
 
 let sessionId = null;
 let pollInterval = null;
+let currentResults = null;
 
 // Handle Form Submission
 if (scanForm) {
@@ -136,6 +137,7 @@ async function loadResults() {
 }
 
 function renderResults(results) {
+    currentResults = results; // Store for export
     progressSection.classList.add('hidden');
     resultsContainer.classList.remove('hidden');
     resultsContainer.innerHTML = '';
@@ -150,6 +152,16 @@ function renderResults(results) {
         const html = generateResultCard(result);
         resultsContainer.insertAdjacentHTML('beforeend', html);
     });
+
+    // Inject Export Button at the bottom
+    const exportBtnHtml = `
+    <div class="mt-8 text-center pb-12">
+        <button onclick="exportResults()" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl font-bold text-lg shadow-lg shadow-blue-500/20 text-white">
+            Export Results as CSV
+        </button>
+    </div>
+    `;
+    resultsContainer.insertAdjacentHTML('beforeend', exportBtnHtml);
 }
 
 function generateResultCard(r) {
@@ -385,7 +397,101 @@ function generateResultCard(r) {
     </div>
     `;
 }
+// Export Results
+function exportResults() {
+    if (!currentResults || currentResults.length === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Data',
+            text: 'There are no results to export.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+        return;
+    }
 
+    try {
+        // Define headers
+        const headers = [
+            'URL', 'Score',
+            'Title', 'Title Len',
+            'Description', 'Desc Len',
+            'Canonical',
+            'OG Title', 'OG Description', 'OG Image',
+            'Top Keywords', 'Warnings'
+        ];
+
+        // Convert results to CSV rows
+        const csvRows = currentResults.map(result => {
+            // Keywords
+            let topKeywords = '';
+            if (result.keyword_consistency) {
+                topKeywords = Object.keys(result.keyword_consistency).slice(0, 5).join('; ');
+            }
+
+            // OG
+            const ogTitle = result.og_tags && result.og_tags['og:title'] ? result.og_tags['og:title'] : '';
+            const ogDesc = result.og_tags && result.og_tags['og:description'] ? result.og_tags['og:description'] : '';
+            const ogImage = result.og_tags && result.og_tags['og:image'] ? result.og_tags['og:image'] : '';
+
+            // Warnings
+            const warnings = (result.warnings || []).join('; ');
+
+            // Return CSV formatted row
+            return [
+                `"${(result.url || '').replace(/"/g, '""')}"`,
+                result.score || 0,
+                `"${(result.title || '').replace(/"/g, '""')}"`,
+                (result.title || '').length,
+                `"${(result.description || '').replace(/"/g, '""')}"`,
+                (result.description || '').length,
+                `"${(result.canonical || '').replace(/"/g, '""')}"`,
+                `"${ogTitle.replace(/"/g, '""')}"`,
+                `"${ogDesc.replace(/"/g, '""')}"`,
+                `"${ogImage.replace(/"/g, '""')}"`,
+                `"${topKeywords.replace(/"/g, '""')}"`,
+                `"${warnings.replace(/"/g, '""')}"`
+            ].join(',');
+        });
+
+        // Combine headers and rows
+        const csvContent = [headers.join(',')].concat(csvRows).join('\n');
+
+        // Create blob and download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `mata_tags_audit_results_${sessionId || 'export'}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Export Successful',
+            text: 'Your CSV file has been downloaded.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6',
+            timer: 2000,
+            showConfirmButton: false
+        });
+
+    } catch (error) {
+        console.error('Export error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Export Failed',
+            text: 'An error occurred while generating the CSV file.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+    }
+}
 function metaRow(type, key, val) {
     return `
     <tr class="hover:bg-gray-800/30 transition">

@@ -5,6 +5,7 @@ const form = document.getElementById('upload-form');
 const stopButton = document.getElementById('stop-button');
 let sessionId = null;
 let pollInterval = null;
+let currentResults = null;
 
 // Initialize drop zone
 dropZone.onclick = () => fileInput.click();
@@ -203,6 +204,7 @@ async function loadResults() {
 
 // Display results
 function displayResults(results) {
+    currentResults = results; // Store for export
     const contentArea = document.getElementById('content-area');
 
     if (!Array.isArray(results) || results.length === 0) {
@@ -344,15 +346,74 @@ async function stopSession() {
     }
 }
 
+// Export results as CSV
 function exportResults() {
-    Swal.fire({
-        icon: 'info',
-        title: 'Feature Coming Soon',
-        text: 'Export functionality is currently being implemented.',
-        background: '#0f172a',
-        color: '#f8fafc',
-        confirmButtonColor: '#3b82f6'
-    });
+    if (!currentResults || currentResults.length === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Data',
+            text: 'There are no results to export.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+        return;
+    }
+
+    try {
+        // Define headers
+        const headers = ['URL', 'Score', 'TTFB (ms)', 'FCP (ms)', 'Load Time (s)', 'Device Preset'];
+
+        // Convert results to CSV rows
+        const csvRows = currentResults.map(result => {
+            const loadTime = (result.page_load / 1000).toFixed(2);
+            // Return CSV formatted row
+            return [
+                `"${result.url.replace(/"/g, '""')}"`,
+                result.score || 0,
+                result.ttfb || 0,
+                result.fcp || 0,
+                loadTime,
+                `"${(result.device_preset || 'Desktop').replace(/"/g, '""')}"`
+            ].join(',');
+        });
+
+        // Combine headers and rows
+        const csvContent = [headers.join(',')].concat(csvRows).join('\n');
+
+        // Create blob and download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `performance_audit_results_${sessionId || 'export'}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Export Successful',
+            text: 'Your CSV file has been downloaded.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6',
+            timer: 2000,
+            showConfirmButton: false
+        });
+
+    } catch (error) {
+        console.error('Export error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Export Failed',
+            text: 'An error occurred while generating the CSV file.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+    }
 }
 
 // Check for results or restart on page load

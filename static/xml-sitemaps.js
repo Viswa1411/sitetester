@@ -3,6 +3,7 @@ const form = document.getElementById('upload-form');
 const stopButton = document.getElementById('stop-button');
 let sessionId = null;
 let pollInterval = null;
+let currentResults = null;
 
 // Form submission
 form.onsubmit = async (e) => {
@@ -148,6 +149,7 @@ async function loadResults() {
 
 // Display results
 function displayResults(results) {
+    currentResults = results; // Store for export
     const contentArea = document.getElementById('content-area');
 
     if (!results || Object.keys(results).length === 0) {
@@ -313,15 +315,96 @@ async function stopSession() {
     }
 }
 
+// Export results as CSV
 function exportResults() {
-    Swal.fire({
-        icon: 'info',
-        title: 'Feature Coming Soon',
-        text: 'Export functionality is currently being implemented.',
-        background: '#0f172a',
-        color: '#f8fafc',
-        confirmButtonColor: '#3b82f6'
-    });
+    if (!currentResults || Object.keys(currentResults).length === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Data',
+            text: 'There are no results to export.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+        return;
+    }
+
+    try {
+        // Since sitemap audit is a single detailed report, we'll export key-value pairs
+        // and lists of issues/urls in a structured way.
+
+        let csvContent = "Metric,Value\n";
+
+        // General Stats
+        csvContent += `Sitemap URL,"${(currentResults.url || '').replace(/"/g, '""')}"\n`;
+        csvContent += `Score,${currentResults.score || 0}\n`;
+        csvContent += `Total URLs,${currentResults.url_count || 0}\n`;
+        csvContent += `Is Index?,${currentResults.is_index || false}\n`;
+        csvContent += `Load Time (ms),${currentResults.load_time_ms || 0}\n`;
+        csvContent += `Robots.txt Status,${currentResults.robots_status || 'unknown'}\n`;
+
+        csvContent += "\nSECTION,ISSUES\n";
+        csvContent += "Type,Message\n";
+
+        const errors = currentResults.errors || [];
+        const warnings = currentResults.warnings || [];
+
+        errors.forEach(e => csvContent += `Error,"${e.replace(/"/g, '""')}"\n`);
+        warnings.forEach(w => csvContent += `Warning,"${w.replace(/"/g, '""')}"\n`);
+
+        if (errors.length === 0 && warnings.length === 0) {
+            csvContent += "None,No issues found\n";
+        }
+
+        csvContent += "\nSECTION,REACHABILITY SAMPLE\n";
+        csvContent += "URL,Status Code\n";
+
+        const reachability = currentResults.reachability_sample || {};
+        Object.entries(reachability).forEach(([url, status]) => {
+            csvContent += `"${url.replace(/"/g, '""')}",${status}\n`;
+        });
+
+        if (currentResults.child_sitemaps && currentResults.child_sitemaps.length > 0) {
+            csvContent += "\nSECTION,CHILD SITEMAPS\n";
+            csvContent += "URL\n";
+            currentResults.child_sitemaps.forEach(url => {
+                csvContent += `"${url.replace(/"/g, '""')}"\n`;
+            });
+        }
+
+        // Create blob and download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `sitemap_audit_results_${sessionId || 'export'}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Export Successful',
+            text: 'Your CSV file has been downloaded.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6',
+            timer: 2000,
+            showConfirmButton: false
+        });
+
+    } catch (error) {
+        console.error('Export error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Export Failed',
+            text: 'An error occurred while generating the CSV file.',
+            background: '#0f172a',
+            color: '#f8fafc',
+            confirmButtonColor: '#3b82f6'
+        });
+    }
 }
 
 // Check for results or restart on page load
